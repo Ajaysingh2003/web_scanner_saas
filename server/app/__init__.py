@@ -1,0 +1,1 @@
+"""AetherScan application package."""

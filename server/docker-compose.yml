@@ -1,0 +1,57 @@
+services:
+  api:
+    build: .
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports: ["8000:8000"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://aetherscan:aetherscan@db:5432/aetherscan}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      APP_NAME: ${APP_NAME:-AetherScan}
+      USER_AGENT: ${USER_AGENT:-AetherScan/1.0 (+https://aetherscan.example)}
+      SCANNER_TIMEOUT_SECONDS: ${SCANNER_TIMEOUT_SECONDS:-25}
+      SCANNER_CONCURRENCY: ${SCANNER_CONCURRENCY:-8}
+      API_KEY_ENABLED: ${API_KEY_ENABLED:-true}
+      API_KEYS: ${API_KEYS:-}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      RATE_LIMIT_REQUESTS: ${RATE_LIMIT_REQUESTS:-60}
+      RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
+      RATE_LIMIT_KEY_PREFIX: ${RATE_LIMIT_KEY_PREFIX:-aetherscan:rate-limit}
+      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-false}
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    volumes: ["./app:/app/app"]
+    healthcheck: {test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"], interval: 10s, timeout: 5s, retries: 5}
+  worker:
+    build: .
+    command: arq app.workers.tasks.WorkerSettings
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://aetherscan:aetherscan@db:5432/aetherscan}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      APP_NAME: ${APP_NAME:-AetherScan}
+      USER_AGENT: ${USER_AGENT:-AetherScan/1.0 (+https://aetherscan.example)}
+      SCANNER_TIMEOUT_SECONDS: ${SCANNER_TIMEOUT_SECONDS:-25}
+      SCANNER_CONCURRENCY: ${SCANNER_CONCURRENCY:-8}
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    volumes: ["./app:/app/app"]
+  migrator:
+    build: .
+    command: alembic upgrade head
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://aetherscan:aetherscan@db:5432/aetherscan}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+    depends_on: {db: {condition: service_healthy}}
+  db:
+    image: postgres:16-alpine
+    environment: {POSTGRES_USER: aetherscan, POSTGRES_PASSWORD: aetherscan, POSTGRES_DB: aetherscan}
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck: {test: ["CMD-SHELL", "pg_isready -U aetherscan -d aetherscan"], interval: 5s, timeout: 5s, retries: 10}
+  redis:
+    image: redis:7-alpine
+    volumes: [redis_data:/data]
+    healthcheck: {test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 3s, retries: 10}
+volumes:
+  postgres_data:
+  redis_data:
