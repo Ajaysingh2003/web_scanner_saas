@@ -1,26 +1,49 @@
+import os
+import asyncio
+
 from sqlalchemy import pool
-from sqlalchemy.ext.asyncio import async_engine_from_config
+from sqlalchemy.ext.asyncio import create_async_engine
 from alembic import context
-from app.core.config import get_settings
 from app.models import Base
 
+# Read DATABASE_URL directly from environment — avoids pydantic-settings
+# lru_cache issues and works in both local Docker and remote cloud deployments.
+_DATABASE_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgresql+asyncpg://aetherscan:aetherscan@db:5432/aetherscan",
+)
+
 config = context.config
-config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%", "%%"))
+config.set_main_option("sqlalchemy.url", _DATABASE_URL.replace("%", "%%"))
 target_metadata = Base.metadata
 
-def run_migrations_offline():
-    context.configure(url=config.get_main_option("sqlalchemy.url"), target_metadata=target_metadata, literal_binds=True)
-    with context.begin_transaction(): context.run_migrations()
 
-async def run_async_migrations():
-    connectable = async_engine_from_config(config.get_section(config.config_ini_section), prefix="sqlalchemy.", poolclass=pool.NullPool)
+def run_migrations_offline() -> None:
+    context.configure(
+        url=_DATABASE_URL,
+        target_metadata=target_metadata,
+        literal_binds=True,
+    )
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+async def run_async_migrations() -> None:
+    connectable = create_async_engine(_DATABASE_URL, poolclass=pool.NullPool)
     async with connectable.connect() as connection:
-        await connection.run_sync(lambda c: context.configure(connection=c, target_metadata=target_metadata))
-        async with connection.begin(): await connection.run_sync(lambda c: context.run_migrations())
+        await connection.run_sync(
+            lambda c: context.configure(connection=c, target_metadata=target_metadata)
+        )
+        async with connection.begin():
+            await connection.run_sync(lambda c: context.run_migrations())
     await connectable.dispose()
 
-def run_migrations_online():
-    import asyncio
+
+def run_migrations_online() -> None:
     asyncio.run(run_async_migrations())
 
-run_migrations_offline() if context.is_offline_mode() else run_migrations_online()
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()

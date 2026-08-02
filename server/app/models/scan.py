@@ -35,6 +35,11 @@ class Scan(Base):
     __tablename__ = "scans"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), index=True)
+    environment: Mapped[str | None] = mapped_column(String(20))
+    scan_type: Mapped[str] = mapped_column(String(40), nullable=False, default="full", server_default="full")
+    api_key_id: Mapped[str | None] = mapped_column(String(24), index=True)
     api_key_fingerprint: Mapped[str | None] = mapped_column(String(24), index=True)
     status: Mapped[ScanStatus] = mapped_column(Enum(ScanStatus), default=ScanStatus.queued, index=True)
     overall_score: Mapped[float | None] = mapped_column(Float)
@@ -46,6 +51,7 @@ class Scan(Base):
         cascade="all, delete-orphan")
     scanner_runs: Mapped[list["ScannerRun"]] = relationship(back_populates="scan",
         cascade="all, delete-orphan")
+    project: Mapped["Project | None"] = relationship(back_populates="scans")
 
 
 class ScanProgress(Base):

@@ -8,9 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.database import SessionFactory
 from app.core.http import fetch_with_ssl_fallback, http_clients
-from app.models import Finding, Scan, ScanProgress, ScanStatus, ScannerRun, ScannerRunStatus
+from app.core.secrets import decrypt_secret
+from app.models import (Finding, Scan, ScanProgress, ScanStatus, ScannerRun, ScannerRunStatus,
+                        SupabaseConnection)
 from app.scanners.base import ScanContext
-from app.scanners.registry import get_scanners
+from app.scanners.registry import get_scanners, get_security_test_scanners
 from app.services.scoring import score_breakdown
 
 
@@ -18,7 +20,34 @@ async def run_scan(scan_id, session: AsyncSession) -> None:
     scan = await session.get(Scan, scan_id)
     if scan is None:
         return
-    scanners = get_scanners()
+    security_test_scanners = get_security_test_scanners(scan.scan_type)
+    supabase_connection = None
+    if security_test_scanners:
+        scanners = security_test_scanners
+    else:
+        scanners = None
+    if scan.project_id:
+        supabase_connection = await session.scalar(
+            select(SupabaseConnection).where(SupabaseConnection.project_id == scan.project_id)
+        )
+    if scanners is None:
+        scanners = get_scanners(include_supabase=supabase_connection is not None)
+    supabase_context = None
+    if supabase_connection:
+        try:
+            supabase_context = {
+                "project_url": supabase_connection.project_url,
+                "anon_key": decrypt_secret(supabase_connection.anon_key_encrypted),
+            }
+            if supabase_connection.service_role_key_encrypted:
+                supabase_context["service_role_key"] = decrypt_secret(
+                    supabase_connection.service_role_key_encrypted
+                )
+        except ValueError:
+            supabase_context = {
+                "project_url": supabase_connection.project_url,
+                "credentials_unavailable": "true",
+            }
     scan.status = ScanStatus.running
     scan.started_at = datetime.now(timezone.utc)
     progress = await session.get(ScanProgress, scan.id)
@@ -52,6 +81,7 @@ async def run_scan(scan_id, session: AsyncSession) -> None:
     async with http_clients(timeout=timeout, limits=limits, headers=headers) as (verified, insecure):
         _probe, ssl_error = await fetch_with_ssl_fallback(verified, insecure, scan.url)
         scanner_http = insecure if ssl_error else verified
+        security_test_runtime: dict[str, object] = {}
         semaphore = asyncio.Semaphore(settings.scanner_concurrency)
         progress_lock = asyncio.Lock()
 
@@ -84,7 +114,16 @@ async def run_scan(scan_id, session: AsyncSession) -> None:
                 await mark_scanner(scanner.name, ScannerRunStatus.running)
                 try:
                     findings = await asyncio.wait_for(
-                        scanner.scan(scan.url, ScanContext(scanner_http, ssl_error=ssl_error)),
+                        scanner.scan(
+                            scan.url,
+                            ScanContext(
+                                scanner_http,
+                                ssl_error=ssl_error,
+                                supabase=supabase_context,
+                                security_test=(scan.metadata_ or {}).get("security_test"),
+                                security_test_runtime=security_test_runtime,
+                            ),
+                        ),
                         timeout=settings.scanner_timeout_seconds,
                     )
                     await mark_scanner(scanner.name, ScannerRunStatus.completed, len(findings))
@@ -106,6 +145,7 @@ async def run_scan(scan_id, session: AsyncSession) -> None:
     scan.metadata_ = {
         **(scan.metadata_ or {}),
         "scoring": breakdown,
+        **({"security_test_runtime": security_test_runtime} if security_test_runtime else {}),
         "scanner_failures": [
             {"scanner": scanner.name, "error": error}
             for scanner, _findings, failed, error in results if failed

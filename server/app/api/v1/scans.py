@@ -3,30 +3,108 @@ import uuid
 
 from arq import ArqRedis
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
+from pydantic import AnyHttpUrl
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_session
 from app.core.database import SessionFactory
-from app.core.api_auth import api_key_fingerprint, is_valid_api_key, presented_api_key, require_api_key
+from app.core.api_auth import (api_key_fingerprint, authenticate_credential, is_valid_api_key,
+                               presented_api_key, require_identity)
+from app.core.auth import decode_access_token
 from app.core.config import get_settings
-from app.models import (Finding, Scan, ScanProgress, ScanStatus, ScannerRun,
+from app.models import (Finding, Project, Scan, ScanProgress, ScanStatus, ScannerRun,
                         ScannerRunStatus, Severity)
-from app.schemas.scans import FindingRead, ScanCreate, ScanRead
-from app.scanners.registry import get_scanners
+from app.models import SupabaseConnection
+from app.schemas.scans import (FindingRead, ScanCreate, ScanRead, SqlInjectionScanCreate,
+                               XssScanCreate)
+from app.schemas.scans import RobotsCrawlRead, RobotsCrawlRequest
+from app.services.robots_crawl import run_robots_crawl
+from app.services.scoring import score_breakdown
+from app.scanners.registry import get_scanners, get_security_test_scanners
 
 router = APIRouter(prefix="/scans", tags=["scans"])
+robots_crawl_router = APIRouter(prefix="/scans", tags=["robots-crawl"])
+security_tests_router = APIRouter(prefix="/projects", tags=["security-tests"])
+
+
+def _refresh_score_for_response(scan: Scan) -> None:
+    if scan.status not in (ScanStatus.completed, ScanStatus.failed):
+        return
+    failed_scanners = sum(run.status == ScannerRunStatus.failed for run in scan.scanner_runs)
+    breakdown = score_breakdown(
+        scan.findings,
+        {run.category for run in scan.scanner_runs},
+        failed_scanners,
+    )
+    scan.overall_score = breakdown["overall_score"]
+    scan.metadata_ = {**(scan.metadata_ or {}), "scoring": breakdown}
+
+
+async def _robots_crawl(url: str, request: Request) -> RobotsCrawlRead:
+    require_identity(request)
+    result = await run_robots_crawl(url)
+    result["findings"] = [
+        {
+            "scanner_name": "robots_crawl",
+            "category": "seo",
+            "severity": finding.severity,
+            "title": finding.title,
+            "description": finding.description,
+            "evidence": finding.evidence,
+            "remediation": finding.remediation,
+            "confidence": finding.confidence,
+        }
+        for finding in result["findings"]
+    ]
+    return RobotsCrawlRead.model_validate(result)
+
+
+@robots_crawl_router.post("/robots-crawl", response_model=RobotsCrawlRead)
+async def robots_crawl(payload: RobotsCrawlRequest, request: Request):
+    return await _robots_crawl(str(payload.url), request)
+
+
+@robots_crawl_router.get("/robots-crawl", response_model=RobotsCrawlRead)
+async def robots_crawl_read(url: AnyHttpUrl, request: Request):
+    return await _robots_crawl(str(url), request)
 
 @router.post("", response_model=ScanRead, status_code=status.HTTP_202_ACCEPTED)
 async def create_scan(payload: ScanCreate, request: Request, session: AsyncSession = Depends(get_session)):
-    owner = require_api_key(request)
-    scanners = get_scanners()
+    identity = require_identity(request)
+    project_id = uuid.UUID(identity["project_id"]) if identity["project_id"] else payload.project_id
+    project = None
+    if project_id:
+        if not identity["user_id"]:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "A user-owned project is required")
+        project = await session.scalar(select(Project).where(
+            Project.id == project_id, Project.owner_user_id == uuid.UUID(identity["user_id"])))
+        if not project:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+        if identity["project_id"] and payload.project_id and payload.project_id != project_id:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Project API key cannot access another project")
+    target = str(payload.url) if payload.url else None
+    if not target and project:
+        target = getattr(project, f"{payload.environment}_url")
+        if not target:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"No {payload.environment} URL is configured for this project")
+    if not target:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No scan target is configured")
+    has_supabase = bool(project and await session.scalar(
+        select(SupabaseConnection.id).where(SupabaseConnection.project_id == project.id)
+    ))
+    scanners = get_scanners(include_supabase=has_supabase)
     scan = Scan(
-        url=str(payload.url),
-        api_key_fingerprint=owner,
+        url=target,
+        scan_type="full",
+        owner_user_id=uuid.UUID(identity["user_id"]) if identity["user_id"] else None,
+        project_id=project.id if project else None,
+        environment=payload.environment if project else None,
+        api_key_id=identity["api_key_id"],
+        api_key_fingerprint=identity["api_key_fingerprint"],
         status=ScanStatus.queued,
-        metadata_={},
+        metadata_={"project_settings": project.settings or {}} if project else {},
         progress=ScanProgress(total_scanners=len(scanners)),
         scanner_runs=[ScannerRun(scanner_name=scanner.name, category=scanner.category,
                                  status=ScannerRunStatus.queued) for scanner in scanners],
@@ -43,34 +121,142 @@ async def create_scan(payload: ScanCreate, request: Request, session: AsyncSessi
     return scan
 
 
+@security_tests_router.post("/{project_id}/security-scans/sql-injection", response_model=ScanRead,
+                            status_code=status.HTTP_202_ACCEPTED)
+async def create_sql_injection_scan(project_id: uuid.UUID, payload: SqlInjectionScanCreate,
+                                    request: Request, session: AsyncSession = Depends(get_session)):
+    identity = require_identity(request)
+    if not identity["user_id"]:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "A user or project API credential is required")
+    if identity["project_id"] and uuid.UUID(identity["project_id"]) != project_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Project API key cannot access another project")
+    project = await session.scalar(select(Project).where(
+        Project.id == project_id, Project.owner_user_id == uuid.UUID(identity["user_id"])))
+    if not project:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+    target = getattr(project, f"{payload.environment}_url", None)
+    if not target:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"No {payload.environment} URL is configured for this project",
+        )
+    scanners = get_security_test_scanners("sql_injection")
+    scan = Scan(
+        url=target,
+        scan_type="sql_injection",
+        owner_user_id=uuid.UUID(identity["user_id"]),
+        project_id=project.id,
+        environment=payload.environment,
+        api_key_id=identity["api_key_id"],
+        api_key_fingerprint=identity["api_key_fingerprint"],
+        status=ScanStatus.queued,
+        metadata_={
+            "security_test": payload.model_dump(exclude={"authorized"}),
+            "authorization_confirmed": True,
+        },
+        progress=ScanProgress(total_scanners=len(scanners)),
+        scanner_runs=[ScannerRun(scanner_name=scanner.name, category=scanner.category,
+                                 status=ScannerRunStatus.queued) for scanner in scanners],
+    )
+    session.add(scan)
+    await session.commit()
+    await session.refresh(scan)
+    await session.refresh(scan, attribute_names=["findings", "progress", "scanner_runs"])
+    redis: ArqRedis | None = getattr(request.app.state, "redis", None)
+    if redis:
+        await redis.enqueue_job("run_scan", str(scan.id))
+    return scan
+
+
+@security_tests_router.post("/{project_id}/security-scans/xss", response_model=ScanRead,
+                            status_code=status.HTTP_202_ACCEPTED)
+async def create_xss_scan(project_id: uuid.UUID, payload: XssScanCreate,
+                          request: Request, session: AsyncSession = Depends(get_session)):
+    identity = require_identity(request)
+    if not identity["user_id"]:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "A user or project API credential is required")
+    if identity["project_id"] and uuid.UUID(identity["project_id"]) != project_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Project API key cannot access another project")
+    project = await session.scalar(select(Project).where(
+        Project.id == project_id, Project.owner_user_id == uuid.UUID(identity["user_id"])))
+    if not project:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+    target = getattr(project, f"{payload.environment}_url", None)
+    if not target:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"No {payload.environment} URL is configured for this project",
+        )
+    scanners = get_security_test_scanners("xss_active")
+    scan = Scan(
+        url=target,
+        scan_type="xss_active",
+        owner_user_id=uuid.UUID(identity["user_id"]),
+        project_id=project.id,
+        environment=payload.environment,
+        api_key_id=identity["api_key_id"],
+        api_key_fingerprint=identity["api_key_fingerprint"],
+        status=ScanStatus.queued,
+        metadata_={
+            "security_test": payload.model_dump(exclude={"authorized"}),
+            "authorization_confirmed": True,
+        },
+        progress=ScanProgress(total_scanners=len(scanners)),
+        scanner_runs=[ScannerRun(scanner_name=scanner.name, category=scanner.category,
+                                 status=ScannerRunStatus.queued) for scanner in scanners],
+    )
+    session.add(scan)
+    await session.commit()
+    await session.refresh(scan)
+    await session.refresh(scan, attribute_names=["findings", "progress", "scanner_runs"])
+    redis: ArqRedis | None = getattr(request.app.state, "redis", None)
+    if redis:
+        await redis.enqueue_job("run_scan", str(scan.id))
+    return scan
+
+
 @router.get("", response_model=list[ScanRead])
 async def list_scans(request: Request, session: AsyncSession = Depends(get_session), limit: int = Query(20, le=100)):
-    owner = require_api_key(request)
+    identity = require_identity(request)
     query = select(Scan).options(selectinload(Scan.findings), selectinload(Scan.progress),
                                  selectinload(Scan.scanner_runs))
-    if owner:
-        query = query.where(Scan.api_key_fingerprint == owner)
+    if identity["project_id"]:
+        query = query.where(Scan.project_id == uuid.UUID(identity["project_id"]))
+    elif identity["user_id"]:
+        query = query.where(Scan.owner_user_id == uuid.UUID(identity["user_id"]))
+    elif identity["api_key_fingerprint"]:
+        query = query.where(Scan.api_key_fingerprint == identity["api_key_fingerprint"])
     query = query.order_by(Scan.started_at.desc().nulls_last()).limit(limit)
-    return list((await session.scalars(query)).all())
+    scans = list((await session.scalars(query)).all())
+    for scan in scans:
+        _refresh_score_for_response(scan)
+    return scans
 
 
 @router.get("/{scan_id}", response_model=ScanRead)
 async def get_scan(scan_id: uuid.UUID, request: Request, session: AsyncSession = Depends(get_session)):
-    owner = require_api_key(request)
+    identity = require_identity(request)
+    ownership = (Scan.project_id == uuid.UUID(identity["project_id"])) if identity["project_id"] else (
+        Scan.owner_user_id == uuid.UUID(identity["user_id"]) if identity["user_id"] else (
+            Scan.api_key_fingerprint == identity["api_key_fingerprint"] if identity["api_key_fingerprint"] else True))
     scan = (await session.scalars(select(Scan).options(selectinload(Scan.findings), selectinload(Scan.progress),
-                                                       selectinload(Scan.scanner_runs)).where(Scan.id == scan_id).where(
-                                                           Scan.api_key_fingerprint == owner if owner else True))).first()
+                                                       selectinload(Scan.scanner_runs)).where(Scan.id == scan_id).where(ownership))).first()
     if not scan:
         raise HTTPException(404, "Scan not found")
+    _refresh_score_for_response(scan)
     return scan
 
 
 @router.get("/{scan_id}/findings", response_model=list[FindingRead])
 async def list_findings(scan_id: uuid.UUID, request: Request, severity: Severity | None = None, session: AsyncSession = Depends(get_session)):
-    owner = require_api_key(request)
+    identity = require_identity(request)
     query = select(Finding).join(Scan).where(Finding.scan_id == scan_id)
-    if owner:
-        query = query.where(Scan.api_key_fingerprint == owner)
+    if identity["project_id"]:
+        query = query.where(Scan.project_id == uuid.UUID(identity["project_id"]))
+    elif identity["user_id"]:
+        query = query.where(Scan.owner_user_id == uuid.UUID(identity["user_id"]))
+    elif identity["api_key_fingerprint"]:
+        query = query.where(Scan.api_key_fingerprint == identity["api_key_fingerprint"])
     if severity:
         query = query.where(Finding.severity == severity)
     return list((await session.scalars(query.order_by(Finding.id))).all())
@@ -80,17 +266,30 @@ async def list_findings(scan_id: uuid.UUID, request: Request, severity: Severity
 async def scan_events(websocket: WebSocket, scan_id: uuid.UUID):
     settings = get_settings()
     api_key = presented_api_key(websocket)
-    owner = api_key_fingerprint(api_key or "") if settings.api_key_enabled and is_valid_api_key(api_key, settings) else None
-    if settings.api_key_enabled and owner is None:
+    authenticated = False
+    if api_key:
+        authenticated = await authenticate_credential(api_key, websocket.scope, settings)
+        if not authenticated and (user_id := decode_access_token(api_key)):
+            websocket.scope["user_id"] = user_id
+            authenticated = True
+        if not authenticated and is_valid_api_key(api_key, settings):
+            websocket.scope["api_key_fingerprint"] = api_key_fingerprint(api_key)
+            authenticated = True
+    if settings.api_key_enabled and not authenticated:
         await websocket.close(code=1008, reason="A valid API key is required")
         return
+    owner_user_id = uuid.UUID(websocket.scope["user_id"]) if websocket.scope.get("user_id") else None
+    owner_project_id = uuid.UUID(websocket.scope["project_id"]) if websocket.scope.get("project_id") else None
+    owner_fingerprint = websocket.scope.get("api_key_fingerprint")
     await websocket.accept()
     try:
         while True:
             async with SessionFactory() as session:
                 scan = (await session.scalars(
                     select(Scan).options(selectinload(Scan.progress)).where(Scan.id == scan_id).where(
-                        Scan.api_key_fingerprint == owner if owner else True)
+                        Scan.project_id == owner_project_id if owner_project_id else (
+                            Scan.owner_user_id == owner_user_id if owner_user_id else (
+                                Scan.api_key_fingerprint == owner_fingerprint if owner_fingerprint else True)))
                 )).first()
             if scan is None:
                 await websocket.close(code=1008, reason="Scan not found")

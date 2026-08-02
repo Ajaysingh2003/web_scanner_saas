@@ -1,14 +1,101 @@
+import json
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import AliasChoices, AnyHttpUrl, BaseModel, ConfigDict, Field, computed_field
+from pydantic import AliasChoices, AnyHttpUrl, BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from app.models.scan import ScanStatus, ScannerRunStatus, Severity
 
 
+def build_remediation_prompt(title: str, description: str, evidence: dict[str, Any], remediation: str) -> str:
+    evidence_json = json.dumps(evidence or {}, sort_keys=True, default=str)
+    return (
+        "You are an AI coding agent working in the website's codebase. Fix this audit finding "
+        "with the smallest production-safe change.\n\n"
+        f"Finding: {title}\n"
+        f"Problem: {description}\n"
+        f"Evidence: {evidence_json}\n"
+        f"Remediation: {remediation}\n\n"
+        "Requirements:\n"
+        "1. Inspect the existing implementation before editing.\n"
+        "2. Apply the fix without weakening unrelated security or functionality.\n"
+        "3. Add or update focused tests when applicable.\n"
+        "4. Run the relevant validation or build checks.\n"
+        "5. Report the files changed, validation performed, and any remaining risk."
+    )
+
+
 class ScanCreate(BaseModel):
+    url: AnyHttpUrl | None = None
+    project_id: uuid.UUID | None = None
+    environment: Literal["production", "staging", "preview"] = "production"
+
+    @model_validator(mode="after")
+    def require_target(self):
+        if self.url is None and self.project_id is None:
+            raise ValueError("Provide url or project_id")
+        return self
+
+
+class SqlInjectionScanCreate(BaseModel):
+    environment: Literal["production", "staging", "preview"] = "production"
+    authorized: bool = Field(
+        default=False,
+        description="Must be true to confirm authorization for active security testing.",
+    )
+    include_post_requests: bool = False
+    include_time_based: bool = False
+    max_pages: int = Field(default=25, ge=1, le=50)
+
+    @model_validator(mode="after")
+    def require_authorization(self):
+        if not self.authorized:
+            raise ValueError("authorized must be true for active SQL injection testing")
+        return self
+
+
+class XssScanCreate(BaseModel):
+    environment: Literal["production", "staging", "preview"] = "production"
+    authorized: bool = Field(
+        default=False,
+        description="Must be true to confirm authorization for active security testing.",
+    )
+    include_post_requests: bool = False
+    max_pages: int = Field(default=50, ge=1, le=100)
+
+    @model_validator(mode="after")
+    def require_authorization(self):
+        if not self.authorized:
+            raise ValueError("authorized must be true for active XSS testing")
+        return self
+
+
+class RobotsCrawlRequest(BaseModel):
     url: AnyHttpUrl
+
+
+class RobotsCrawlFinding(BaseModel):
+    scanner_name: str
+    category: str
+    severity: Severity
+    title: str
+    description: str
+    evidence: dict[str, Any]
+    remediation: str
+    confidence: float
+
+    @computed_field
+    @property
+    def remediation_prompt(self) -> str:
+        return build_remediation_prompt(self.title, self.description, self.evidence, self.remediation)
+
+
+class RobotsCrawlRead(BaseModel):
+    robots_txt_present: bool
+    robots_txt_url: str
+    pages_scanned: int
+    findings: list[RobotsCrawlFinding]
 
 
 class FindingRead(BaseModel):
@@ -22,6 +109,11 @@ class FindingRead(BaseModel):
     evidence: dict[str, Any]
     remediation: str
     confidence: float
+
+    @computed_field
+    @property
+    def remediation_prompt(self) -> str:
+        return build_remediation_prompt(self.title, self.description, self.evidence, self.remediation)
 
 
 class ScanProgressRead(BaseModel):
@@ -51,6 +143,7 @@ class ReportFindingRead(BaseModel):
     severity: Severity
     confidence: float
     remediation: str
+    remediation_prompt: str
 
 
 class ReportSummary(BaseModel):
@@ -70,6 +163,9 @@ class ScanRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
     url: str
+    project_id: uuid.UUID | None = None
+    environment: str | None = None
+    scan_type: str = "full"
     status: ScanStatus
     overall_score: float | None
     started_at: datetime | None
@@ -105,6 +201,9 @@ class ScanRead(BaseModel):
                 severity=finding.severity,
                 confidence=finding.confidence,
                 remediation=finding.remediation,
+                remediation_prompt=build_remediation_prompt(
+                    finding.title, finding.description, finding.evidence, finding.remediation
+                ),
             )
             for finding in priority_findings[:5]
         ]

@@ -5,5 +5,6 @@ COPY app app
 COPY alembic alembic
 COPY alembic.ini .
 RUN pip install --no-cache-dir --retries 5 --timeout 120 -r requirements.txt
+RUN playwright install --with-deps chromium
 ENV PYTHONPATH=/app
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
