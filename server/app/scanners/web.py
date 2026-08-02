@@ -38,9 +38,14 @@ class SecurityHeadersScanner(BaseScanner):
             if header not in headers:
                 findings.append(FindingResult(severity, f"Missing {header}",
                     f"The response does not declare a {header} policy.", {"header": header}, remediation))
-        hsts = headers.get("strict-transport-security", "")
         if urlparse(target).scheme != "https":
             return findings
+        hsts = headers.get("strict-transport-security", "")
+        directives = [part.strip() for part in hsts.split(";") if part.strip()]
+        directive_names = [part.split("=", 1)[0].strip().lower() for part in directives]
+        duplicate_directives = sorted({name for name in directive_names if directive_names.count(name) > 1})
+        max_age_values = [part.split("=", 1)[1].strip() for part in directives
+                          if part.lower().startswith("max-age=") and "=" in part]
         if not hsts:
             findings.append(FindingResult(
                 Severity.high, "Missing strict-transport-security",
@@ -48,15 +53,40 @@ class SecurityHeadersScanner(BaseScanner):
                 {"url": target, "header": "strict-transport-security"},
                 "Set Strict-Transport-Security with max-age=31536000 after validating HTTPS for all subdomains.",
             ))
+        elif duplicate_directives or len(max_age_values) != 1 or not max_age_values[0].isdigit():
+            findings.append(FindingResult(
+                Severity.high, "Invalid strict-transport-security policy",
+                "The HSTS header has duplicate directives or an invalid max-age value.",
+                {"value": hsts, "duplicate_directives": duplicate_directives},
+                "Send one valid max-age directive with an integer value and no duplicate directives."))
         else:
-            match = re.search(r"max-age\s*=\s*(\d+)", hsts, re.I)
-            if not match or int(match.group(1)) < 15_552_000:
+            max_age = int(max_age_values[0])
+            if max_age < 31_536_000 or "includesubdomains" not in directive_names:
                 findings.append(FindingResult(
-                    Severity.medium, "Weak strict-transport-security policy",
-                    "The HSTS max-age is missing or below the recommended six-month minimum.",
-                    {"url": target, "value": hsts},
-                    "Use max-age=31536000 and consider includeSubDomains after validation.",
-                ))
+                    Severity.high, "Weak strict-transport-security policy",
+                    "The HTTPS response does not enforce a one-year HSTS policy across subdomains.",
+                    {"url": target, "value": hsts, "max_age": max_age,
+                     "include_subdomains": "includesubdomains" in directive_names},
+                    "Use max-age=31536000; includeSubDomains after validating every subdomain."))
+            if "preload" not in directive_names:
+                findings.append(FindingResult(
+                    Severity.info, "HSTS preload directive is absent",
+                    "The site is not declaring intent to participate in browser HSTS preload lists.",
+                    {"url": target},
+                    "Add preload only after meeting browser preload requirements and validating all subdomains.",
+                    confidence=0.7))
+        try:
+            http_target = urlparse(target)._replace(scheme="http").geturl()
+            redirect = await context.http.get(http_target, follow_redirects=False)
+            location = redirect.headers.get("location", "")
+            if redirect.status_code not in {301, 302, 307, 308} or not location.lower().startswith("https://"):
+                findings.append(FindingResult(
+                    Severity.high, "HTTP does not redirect to HTTPS",
+                    "The HTTP origin does not enforce a direct redirect to the HTTPS origin.",
+                    {"url": http_target, "status_code": redirect.status_code, "location": location or None},
+                    "Redirect every HTTP request to its HTTPS equivalent before relying on HSTS."))
+        except Exception:
+            pass
         return findings
 
 
@@ -147,6 +177,88 @@ class CorsScanner(BaseScanner):
             return []
         return [FindingResult(severity, title, "The target advertises a permissive cross-origin policy.",
                               {"allow_origin": allow_origin, "allow_credentials": allow_credentials}, fix)]
+
+
+class SriScanner(BaseScanner):
+    name, category = "subresource_integrity", "configuration"
+    valid_algorithms = {"sha256", "sha384", "sha512"}
+
+    async def scan(self, target: str, context: ScanContext) -> list[FindingResult]:
+        response = await context.http.get(target)
+        if "html" not in response.headers.get("content-type", "").lower():
+            return []
+        soup = BeautifulSoup(response.text[:2_000_000], "html.parser")
+        origin = urlparse(target).netloc.lower()
+        findings: list[FindingResult] = []
+        for script in soup.find_all("script", src=True):
+            source = urljoin(target, script.get("src", "").strip())
+            parsed = urlparse(source)
+            if parsed.scheme not in {"http", "https"} or parsed.netloc.lower() == origin:
+                continue
+            integrity = script.get("integrity", "").strip()
+            if not integrity:
+                findings.append(FindingResult(
+                    Severity.high, "Third-party script is missing SRI",
+                    "A script loaded from another origin has no cryptographic integrity metadata.",
+                    {"script": source},
+                    "Pin the script with a sha384 or sha512 integrity hash, or self-host the dependency."))
+                continue
+            tokens = integrity.split()
+            valid_tokens = [token for token in tokens
+                            if "-" in token and token.split("-", 1)[0].lower() in self.valid_algorithms
+                            and re.fullmatch(r"[A-Za-z0-9+/]+={0,2}", token.split("-", 1)[1])]
+            if not valid_tokens or len(valid_tokens) != len(tokens):
+                findings.append(FindingResult(
+                    Severity.high, "Third-party script has invalid SRI",
+                    "The script integrity attribute does not contain valid sha256, sha384, or sha512 hashes.",
+                    {"script": source, "integrity": integrity},
+                    "Use a valid base64 sha256, sha384, or sha512 integrity token generated from the exact asset."))
+            if not any(token.lower().startswith(("sha384-", "sha512-")) for token in valid_tokens):
+                findings.append(FindingResult(
+                    Severity.medium, "Third-party script uses weak SRI coverage",
+                    "The script is protected only by sha256; stronger sha384 or sha512 coverage is preferred.",
+                    {"script": source},
+                    "Use a sha384 or sha512 integrity hash for third-party scripts.", confidence=0.9))
+            if not script.get("crossorigin"):
+                findings.append(FindingResult(
+                    Severity.medium, "Cross-origin SRI script lacks crossorigin",
+                    "Cross-origin SRI fetches should declare an explicit CORS mode for reliable integrity validation.",
+                    {"script": source},
+                    "Add crossorigin=\"anonymous\" and configure the asset origin for anonymous CORS.", confidence=0.85))
+        return findings
+
+
+class MixedContentScanner(BaseScanner):
+    name, category = "mixed_content", "configuration"
+
+    async def scan(self, target: str, context: ScanContext) -> list[FindingResult]:
+        if urlparse(target).scheme != "https":
+            return []
+        response = await context.http.get(target)
+        if "html" not in response.headers.get("content-type", "").lower():
+            return []
+        soup = BeautifulSoup(response.text[:2_000_000], "html.parser")
+        insecure: set[str] = set()
+        for tag in soup.find_all(True):
+            for attribute in ("src", "href", "action", "poster", "data", "srcset"):
+                value = tag.get(attribute, "")
+                values = value.split(",") if attribute == "srcset" else [value]
+                insecure.update(item.strip().split(" ", 1)[0] for item in values
+                                if item.strip().lower().startswith(("http://", "//")))
+            insecure.update(re.findall(
+                r"(?:url\(\s*['\"]?|@import\s+['\"])((?:https?:)?//[^'\")\s]+)",
+                tag.get("style", ""), re.I))
+        for style in soup.find_all("style"):
+            insecure.update(re.findall(
+                r"(?:url\(\s*['\"]?|@import\s+['\"])((?:https?:)?//[^'\")\s]+)",
+                style.get_text(), re.I))
+        if not insecure:
+            return []
+        return [FindingResult(
+            Severity.high, "Mixed content references found",
+            "The HTTPS page references resources or form actions over HTTP or protocol-relative URLs.",
+            {"count": len(insecure), "examples": sorted(insecure)[:10]},
+            "Serve every resource over HTTPS and update protocol-relative or hard-coded HTTP URLs.")]
 
 
 class CookieSecurityScanner(BaseScanner):

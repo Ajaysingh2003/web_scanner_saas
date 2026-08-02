@@ -12,14 +12,28 @@ from app.scanners.vulnerability.jwt_security import JwtSecurityScanner
 from app.scanners.vulnerability.tech_stack_cve import TechStackCveScanner
 from app.scanners.web import (ApiKeyExposureScanner, CookieSecurityScanner, CorsScanner,
                               DebugEndpointsScanner, OpenRedirectScanner, SecurityHeadersScanner,
-                              XssSurfaceScanner)
+                              XssSurfaceScanner, SriScanner, MixedContentScanner)
+from app.scanners.supabase_security import SupabaseSecurityScanner
+from app.scanners.compliance import ComplianceCheckScanner
+from app.scanners.sqli import SqlInjectionScanner
+from app.scanners.xss_active import ActiveXssScanner
 
 SCANNERS: tuple[type[BaseScanner], ...] = (SecurityHeadersScanner, SslTlsScanner,
     ApiKeyExposureScanner, CorsScanner, DnsEmailScanner, CookieSecurityScanner, DebugEndpointsScanner,
-    XssSurfaceScanner, OpenRedirectScanner, JwtSecurityScanner, GraphqlSecurityScanner,
+    XssSurfaceScanner, SriScanner, MixedContentScanner, OpenRedirectScanner, JwtSecurityScanner, GraphqlSecurityScanner,
     CsrfProtectionScanner, TechStackCveScanner, IdorAccessControlScanner, SeoScanner, AeoScanner,
-    PerformanceBasicsScanner, AccessibilityBasicsScanner, FileUploadSecurityScanner)
+    PerformanceBasicsScanner, AccessibilityBasicsScanner, FileUploadSecurityScanner,
+    ComplianceCheckScanner)
 
 
-def get_scanners() -> list[BaseScanner]:
-    return [scanner() for scanner in SCANNERS]
+def get_scanners(include_supabase: bool = False) -> list[BaseScanner]:
+    scanner_types = SCANNERS + ((SupabaseSecurityScanner,) if include_supabase else ())
+    return [scanner() for scanner in scanner_types]
+
+
+def get_security_test_scanners(scan_type: str) -> list[BaseScanner]:
+    if scan_type == "sql_injection":
+        return [SqlInjectionScanner()]
+    if scan_type == "xss_active":
+        return [ActiveXssScanner()]
+    return []

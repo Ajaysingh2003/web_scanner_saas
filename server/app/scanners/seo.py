@@ -109,13 +109,6 @@ class SeoScanner(BaseScanner):
                                      {"images": len(images), "missing_alt": len(missing_alt), "examples": missing_alt[:5]},
                                      "Add concise alt text to informative images and an empty alt attribute to decorative images."))
 
-        if parsed_target.scheme == "https":
-            insecure_urls = [tag.get(attr, "") for tag in soup.find_all(["img", "script", "link", "iframe"])
-                             for attr in ("src", "href") if tag.get(attr, "").lower().startswith("http://")]
-            if insecure_urls:
-                findings.append(_finding(Severity.medium, "Mixed content references found", "The HTTPS page references resources over plain HTTP.",
-                                         {"count": len(insecure_urls), "examples": insecure_urls[:5]},
-                                         "Serve every page resource over HTTPS and update hard-coded HTTP URLs."))
         if not soup.find("meta", attrs={"name": re.compile(r"^viewport$", re.I)}):
             findings.append(_finding(Severity.medium, "Viewport meta tag is missing", "Mobile browsers lack an explicit responsive viewport policy.",
                                      {"url": target}, "Add a responsive viewport such as width=device-width, initial-scale=1."))

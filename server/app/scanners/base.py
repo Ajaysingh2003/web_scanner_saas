@@ -21,6 +21,9 @@ class ScanContext:
     http: Any
     dns: Any = None
     ssl_error: str | None = None
+    supabase: dict[str, str] | None = None
+    security_test: dict[str, object] | None = None
+    security_test_runtime: dict[str, object] | None = None
 
 
 class BaseScanner(ABC):
