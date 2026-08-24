@@ -3,7 +3,8 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import AliasChoices, AnyHttpUrl, BaseModel, ConfigDict, Field, computed_field, model_validator
+from pydantic import (AliasChoices, AnyHttpUrl, BaseModel, ConfigDict, Field, SecretStr,
+                      computed_field, field_serializer, model_validator)
 
 from app.models.scan import ScanStatus, ScannerRunStatus, Severity
 
@@ -30,6 +31,7 @@ class ScanCreate(BaseModel):
     url: AnyHttpUrl | None = None
     project_id: uuid.UUID | None = None
     environment: Literal["production", "staging", "preview"] = "production"
+    scanner_categories: list[str] | None = Field(default=None, max_length=20)
 
     @model_validator(mode="after")
     def require_target(self):
@@ -68,6 +70,59 @@ class XssScanCreate(BaseModel):
     def require_authorization(self):
         if not self.authorized:
             raise ValueError("authorized must be true for active XSS testing")
+        return self
+
+
+ExtendedScanType = Literal[
+    "github_sast", "dependencies", "firebase", "tenant_isolation", "audit_logging",
+    "ddos_resilience", "mobile_api", "hosting_security",
+]
+
+
+class TenantActor(BaseModel):
+    identifier: str = Field(min_length=1, max_length=320)
+    password: SecretStr = Field(min_length=12)
+
+
+class TenantIsolationConfig(BaseModel):
+    login_url: str = "/login"
+    identifier_selector: str = "input[name=email]"
+    password_selector: str = "input[name=password]"
+    submit_selector: str = "button[type=submit]"
+    actor_a: TenantActor
+    actor_b: TenantActor
+    resource_paths: list[str] = Field(min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def validate_paths(self):
+        if any(not path.startswith("/") or "?" in path for path in self.resource_paths):
+            raise ValueError("resource_paths must be same-origin paths without query strings")
+        return self
+
+
+class ExtendedUrlScanCreate(BaseModel):
+    url: AnyHttpUrl
+    authorized: bool = Field(default=False)
+    repository_url: AnyHttpUrl | None = None
+    github_token: SecretStr | None = None
+    firebase_project_url: AnyHttpUrl | None = None
+    firebase_access_token: SecretStr | None = None
+    firebase_api_key: SecretStr | None = None
+    vercel_project_id: str | None = None
+    vercel_token: SecretStr | None = None
+    netlify_site_id: str | None = None
+    netlify_token: SecretStr | None = None
+    cloudflare_zone_id: str | None = None
+    cloudflare_api_token: SecretStr | None = None
+    tenant: TenantIsolationConfig | None = None
+    tenant_test_mode: bool = False
+
+    @model_validator(mode="after")
+    def validate_scope(self):
+        if not self.authorized:
+            raise ValueError("authorized must be true for extended security testing")
+        if self.tenant_test_mode and self.tenant is None:
+            raise ValueError("tenant configuration is required when tenant_test_mode is enabled")
         return self
 
 
@@ -174,6 +229,18 @@ class ScanRead(BaseModel):
     findings: list[FindingRead] = Field(default_factory=list)
     progress: ScanProgressRead | None = None
     scanner_runs: list[ScannerRunRead] = Field(default_factory=list)
+
+    @field_serializer("metadata_")
+    def serialize_metadata(self, value: dict[str, Any]) -> dict[str, Any]:
+        safe_value = dict(value or {})
+        security_test = dict(safe_value.get("security_test") or {})
+        security_test.pop("webhook_secret_encrypted", None)
+        security_test.pop("test_account_encrypted", None)
+        security_test.pop("flow_encrypted", None)
+        security_test.pop("rate_limit_probe_encrypted", None)
+        security_test.pop("integration_encrypted", None)
+        safe_value["security_test"] = security_test
+        return safe_value
 
     @computed_field
     @property

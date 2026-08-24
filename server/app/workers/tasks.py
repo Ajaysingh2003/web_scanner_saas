@@ -6,8 +6,11 @@ from arq.connections import RedisSettings
 from app.core.config import get_settings
 from arq import cron
 from sqlalchemy import select
-from app.models import Project, Scan, ScanProgress, ScanStatus, ScannerRun, ScannerRunStatus
+from app.models import Project, Scan, ScanProgress, ScanStatus, ScannerRun, ScannerRunStatus, UptimeMonitor
 from app.scanners.registry import get_scanners
+from app.services.billing import reserve_scan_slot
+from app.services.uptime import check_monitor
+from fastapi import HTTPException
 
 
 async def run_scan(ctx, scan_id: str):
@@ -29,6 +32,10 @@ async def enqueue_due_scans(ctx):
             project.schedule_next_run_at = now + timedelta(minutes=project.schedule_interval_minutes)
             if not target:
                 continue
+            try:
+                await reserve_scan_slot(session, project.owner_user_id)
+            except HTTPException:
+                continue
             scan = Scan(url=target, owner_user_id=project.owner_user_id, project_id=project.id,
                         environment=project.schedule_environment, status=ScanStatus.queued,
                         metadata_={"project_settings": project.settings or {}, "scheduled": True},
@@ -44,8 +51,20 @@ async def enqueue_due_scans(ctx):
         await redis.enqueue_job("run_scan", scan_id)
 
 
+async def check_due_uptime(ctx):
+    now = datetime.now(timezone.utc)
+    async with SessionFactory() as session:
+        monitors = (await session.scalars(select(UptimeMonitor).where(UptimeMonitor.enabled))).all()
+        for monitor in monitors:
+            if monitor.last_checked_at and (now - monitor.last_checked_at).total_seconds() < monitor.interval_seconds:
+                continue
+            await check_monitor(session, monitor)
+        await session.commit()
+
+
 class WorkerSettings:
     functions = [run_scan]
     max_jobs = 2
-    cron_jobs = [cron(enqueue_due_scans, minute=set(range(60)))]
+    cron_jobs = [cron(enqueue_due_scans, minute=set(range(60))),
+                 cron(check_due_uptime, minute=set(range(60)))]
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

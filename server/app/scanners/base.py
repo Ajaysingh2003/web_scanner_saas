@@ -24,6 +24,7 @@ class ScanContext:
     supabase: dict[str, str] | None = None
     security_test: dict[str, object] | None = None
     security_test_runtime: dict[str, object] | None = None
+    session_factory: Any = None
 
 
 class BaseScanner(ABC):

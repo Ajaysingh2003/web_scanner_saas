@@ -59,6 +59,46 @@ API secrets are shown only once, stored as hashes, revocable, and tied to the
 owning user. Access tokens expire quickly and refresh tokens rotate on use.
 The same routes are available under `/api` without the `/v1` prefix.
 
+## Billing and plans
+
+Stripe-backed billing is available through the API:
+
+- `GET /api/v1/billing/plans`
+- `GET /api/v1/billing/account`
+- `POST /api/v1/billing/checkout` with `{"plan":"pro","interval":"monthly"}`
+- `POST /api/v1/billing/portal`
+- `POST /api/v1/billing/webhook` for Stripe events
+
+Checkout uses Stripe-hosted subscription pages. Subscription state is changed
+only from verified, idempotently processed Stripe webhooks; the frontend is
+never treated as proof of payment. Project creation, API-key creation, direct
+scans, active security scans, extended scans, and scheduled scans enforce the
+current plan limits in the API. Starter is the safe default until a verified
+subscription webhook activates another plan. Add the blank `STRIPE_*` values
+from `.env.example` after creating Stripe prices and a webhook endpoint.
+
+Uptime monitoring and report delivery are API-first:
+
+- `POST/GET /api/v1/projects/{project_id}/uptime`
+- `GET /api/v1/projects/{project_id}/uptime/checks`
+- `GET /api/v1/projects/{project_id}/uptime/incidents`
+- `GET /api/v1/public/status/{status_token}`
+- `GET /api/v1/scans/{scan_id}/diff`
+- `GET /api/v1/scans/projects/{project_id}/scan-history`
+- `GET /api/v1/scans/{scan_id}/export?format=markdown|pdf`
+- `POST /api/v1/scans/{scan_id}/share`
+- `DELETE /api/v1/scans/{scan_id}/share/{link_id}`
+- `GET /api/v1/public/reports/{share_token}?format=json|markdown|pdf`
+
+The worker performs read-only uptime checks on the configured interval, stores
+response-time samples, opens/resolves incidents on state transitions, and
+sends signed `uptime.down` and `uptime.recovered` webhooks. Scan comparisons
+persist new, fixed, unchanged, score delta, and regression data in scan
+metadata; a regression is sent as `scan.regression` when the project has an
+uptime alert webhook. Public report links are random, hashed at rest, expiring,
+and revocable. PDF generation uses the backend report renderer; white-label
+branding is restricted to Max-plan users.
+
 ## Projects
 
 Projects let one user manage production, staging, and preview URLs. Use the
@@ -71,6 +111,30 @@ following routes with a user access token:
 - `POST/PUT/GET/DELETE /api/v1/projects/{project_id}/supabase`
 - `POST /api/v1/projects/{project_id}/security-scans/sql-injection`
 - `POST /api/v1/projects/{project_id}/security-scans/xss`
+- `POST /api/v1/projects/{project_id}/security-scans/authentication`
+- `GET/POST /api/v1/otp-sessions/{session_id}` and `/submit`
+
+Extended checks are separate URL-triggered jobs at
+`POST /api/v1/scans/security/{scan_type}`. Supported scan types are
+`github_sast`, `dependencies`, `firebase`, `tenant_isolation`,
+`audit_logging`, `ddos_resilience`, `mobile_api`, and `hosting_security`.
+Every request requires `url` and `authorized: true`. Repository scans also
+require `repository_url` and optionally an encrypted GitHub token; tenant
+isolation additionally requires explicitly configured authorized test actors.
+The DDoS check is passive and never floods a target. URL-only results clearly
+mark integration-required checks as incomplete instead of claiming proof.
+
+Repository scans use bounded GitHub tree access and query OSV for exact
+versions from supported package manifests/lockfiles. The SAST pass reports
+potential same-file source-to-sink flows and is intentionally marked for code
+review rather than presented as exploit proof. Tenant isolation requires two
+distinct authorized actors plus paths owned by actor A; the worker uses
+separate browser contexts and reports a potential cross-tenant read only when
+actor A succeeds and actor B also receives a successful non-empty response.
+Firebase checks can inspect Realtime Database, Firestore, Storage, and Auth
+signals when the project URL/API credentials are supplied. Provider checks use
+least-purpose Vercel, Netlify, or Cloudflare API calls when their scoped token
+and resource ID are provided; tokens are encrypted and never returned.
 
 Create a project-backed scan with `{"project_id":"...","environment":"staging"}`
 or keep using a direct `url`. Project API keys are restricted to their project.
@@ -124,11 +188,74 @@ from reflection-only signals. It also tests URL parameters and URL fragments
 on every discovered same-origin page. Install the Chromium browser in worker images
 before enabling this endpoint.
 
+Authentication-flow testing is also opt-in and queued through the worker:
+`POST /api/v1/projects/{project_id}/security-scans/authentication`. The test
+account supports `email`, `phone`, `username`, or a generic `identifier`, plus
+password. Flow steps reference values as `test_account.email`,
+`test_account.phone`, `test_account.username`, or `test_account.password`, so
+email-only assumptions are not required. The endpoint requires an authorized
+staging/preview flow and a client-provided webhook secret. Events are signed
+with `X-AetherScan-Signature`; OTP sessions expire after three minutes and are
+submitted through `/api/v1/otp-sessions/{id}/submit`. Credentials and OTPs are
+encrypted temporarily and never returned in scan metadata or webhooks.
+
+To test brute-force protection, explicitly enable the bounded rate-limit probe
+inside the same request. It submits 3–8 invalid attempts using a disposable
+test account, waits 250–2,000 ms between attempts, and stops immediately on a
+429, `Retry-After`, exhausted rate-limit header, CAPTCHA, challenge, or
+lockout signal. It never uses the real password, stores or returns response
+bodies, or runs during a normal scan:
+
+```json
+{
+  "environment": "staging",
+  "authorized": true,
+  "webhook_url": "https://scanner.example/webhooks/aetherscan",
+  "webhook_secret": "a-random-secret-at-least-32-characters-long",
+  "test_account": {
+    "email": "scanner-test@example.com",
+    "password": "correct-password-kept-encrypted"
+  },
+  "rate_limit_probe": {
+    "enabled": true,
+    "start_url": "/login",
+    "identifier_selector": "input[name=email]",
+    "identifier_from": "test_account.email",
+    "password_selector": "input[name=password]",
+    "submit_selector": "button[type=submit]",
+    "wrong_password": "different-invalid-password-123",
+    "attempts": 5,
+    "delay_ms": 500,
+    "endpoint_path": "/api/auth/login"
+  },
+  "flow": {
+    "type": "login",
+    "steps": [
+      {"action": "open_url", "url": "/login"}
+    ]
+  }
+}
+```
+
+If no observable protection appears after the bounded probe, the result is a
+high-severity potential finding with redacted status codes and response paths.
+This is a controlled signal, not proof that every authentication path is
+unprotected; verify the server's per-account, per-IP, device, and distributed
+rate-limit configuration before remediation.
+
 Project responses use a consistent `success`, `message`, `data`, and `meta`
 envelope. `meta` includes a request ID, timestamp, and list total where
 applicable. The same request ID is returned in the `X-Request-ID` header.
 
 Scanners are passive, timeout-protected, and registered in `app/scanners/registry.py`. The current checks include strict HSTS enforcement, SPF/DMARC/DKIM email authentication, third-party script SRI, broad mixed-content detection, and a separate `compliance_check` for legal-policy, cookie-consent, and GDPR indicators. Compliance findings are website signals, not legal certification; have counsel review the final policies.
+
+URL-only coverage also includes exposed artifact and secret discovery (public
+`.env`, repository/config files, backups, source maps, and JavaScript bundles),
+browser storage inspection for token-like values, safe input-validation and
+query-reflection signals, and domain watchtower checks for dangling hosted
+service records. These checks are read-only; the input probe uses a harmless
+marker and never submits form data. Repeated signals are fingerprinted and
+merged while retaining affected page or path evidence.
 
 ## Phase 2 progress
 

@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     auth_refresh_token_days: int = 30
     auth_email_verification_required: bool = True
     auth_email_verification_hours: int = 24
-    auth_frontend_url: str = "http://localhost:3000"
+    auth_frontend_url: str = "http://localhost:7000"
     supabase_encryption_key: str = ""
     google_client_id: str = ""
     google_client_secret: str = ""
@@ -30,6 +30,17 @@ class Settings(BaseSettings):
     github_client_id: str = ""
     github_client_secret: str = ""
     github_redirect_uri: str = "http://localhost:8000/api/v1/auth/github/callback"
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_price_starter_monthly: str = ""
+    stripe_price_starter_annual: str = ""
+    stripe_price_pro_monthly: str = ""
+    stripe_price_pro_annual: str = ""
+    stripe_price_max_monthly: str = ""
+    stripe_price_max_annual: str = ""
+    stripe_success_url: str = "http://localhost:3000/billing/success"
+    stripe_cancel_url: str = "http://localhost:3000/billing/cancel"
+    stripe_portal_return_url: str = "http://localhost:3000/settings/billing"
     smtp_host: str = ""
     smtp_port: int = 587
     smtp_username: str = ""
