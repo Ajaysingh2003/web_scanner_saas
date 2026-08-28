@@ -11,8 +11,9 @@ from sqlalchemy.orm import selectinload
 from app.core.api_auth import require_account_user
 from app.core.auth import token_hash
 from app.core.database import get_session
-from app.models import Project, PublicReportLink, Scan, ScanStatus
-from app.schemas.monitoring import ReportExportOptions, ReportShareCreate, ReportShareRead
+from app.models import Finding, Project, PublicReportLink, Scan, ScanStatus
+from app.schemas.monitoring import (ReportExportOptions, ReportShareCreate, ReportShareListItem,
+                                    ReportShareRead)
 from app.schemas.scans import ScanRead
 from app.services.report_exports import report_markdown, report_pdf
 from app.services.billing import current_plan, plan_features
@@ -25,11 +26,14 @@ public_router = APIRouter(prefix="/public/reports", tags=["public-reports"])
 async def _owned_scan(scan_id: uuid.UUID, request: Request, session: AsyncSession) -> Scan:
     user_id = require_account_user(request)
     scan = await session.scalar(select(Scan).where(Scan.id == scan_id, Scan.owner_user_id == uuid.UUID(user_id)).options(
-        selectinload(Scan.findings), selectinload(Scan.progress), selectinload(Scan.scanner_runs)
+        selectinload(Scan.findings).selectinload(Finding.retests),
+        selectinload(Scan.progress),
+        selectinload(Scan.scanner_runs)
     ))
     if not scan:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Scan not found")
     return scan
+
 
 
 async def _previous(scan: Scan, session: AsyncSession) -> Scan | None:
@@ -55,11 +59,15 @@ def _export_response(scan: Scan, options: ReportExportOptions):
 async def export_scan(scan_id: uuid.UUID, request: Request, options: ReportExportOptions = Depends(),
                       session: AsyncSession = Depends(get_session)):
     scan = await _owned_scan(scan_id, request, session)
-    if options.brand_name and "white_label_reports" not in plan_features(await current_plan(session, scan.owner_user_id)):
+    plan = await current_plan(session, scan.owner_user_id)
+    if options.format == "pdf" and "pdf_export" not in plan_features(plan):
+        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, "PDF report exports require a paid plan (Starter, Pro, or Max)")
+    if options.brand_name and "white_label_reports" not in plan_features(plan):
         raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, "White-label reports require the Max plan")
     if options.format == "json":
         options.format = "markdown"
     return _export_response(scan, options)
+
 
 
 @router.get("/{scan_id}/diff")
@@ -76,11 +84,15 @@ async def scan_history(project_id: uuid.UUID, request: Request, session: AsyncSe
     project = await session.scalar(select(Project).where(Project.id == project_id, Project.owner_user_id == user_id))
     if not project:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+    from sqlalchemy import desc
     scans = (await session.scalars(select(Scan).where(Scan.project_id == project.id)
-             .order_by(Scan.finished_at.desc()).limit(min(limit, 200)))).all()
+             .order_by(desc(Scan.started_at), desc(Scan.finished_at)).limit(min(limit, 200)))).all()
     scans = [scan for scan in scans if not (scan.metadata_ or {}).get("benchmark")]
-    return [{"scan_id": str(scan.id), "scan_type": scan.scan_type, "status": scan.status,
-             "score": scan.overall_score, "finished_at": scan.finished_at} for scan in scans]
+    return [{"scan_id": str(scan.id), "scan_type": scan.scan_type,
+             "scan_scope": (scan.metadata_ or {}).get("scan_scope"),
+             "status": scan.status, "score": scan.overall_score,
+             "url": scan.url, "started_at": scan.started_at,
+             "finished_at": scan.finished_at} for scan in scans]
 
 
 @router.post("/{scan_id}/share", response_model=ReportShareRead, status_code=status.HTTP_201_CREATED)
@@ -93,6 +105,16 @@ async def share_scan(scan_id: uuid.UUID, payload: ReportShareCreate, request: Re
                                  token_hash=token_hash(token), expires_at=expires_at))
     await session.commit()
     return ReportShareRead(url=str(request.base_url).rstrip("/") + "/api/v1/public/reports/" + token, expires_at=expires_at)
+
+
+@router.get("/{scan_id}/share", response_model=list[ReportShareListItem])
+async def list_scan_shares(scan_id: uuid.UUID, request: Request,
+                           session: AsyncSession = Depends(get_session)):
+    await _owned_scan(scan_id, request, session)
+    links = list((await session.scalars(select(PublicReportLink).where(
+        PublicReportLink.scan_id == scan_id
+    ).order_by(PublicReportLink.created_at.desc()))).all())
+    return [ReportShareListItem.model_validate(link) for link in links]
 
 
 @router.delete("/{scan_id}/share/{link_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -111,8 +133,11 @@ async def public_report(token: str, options: ReportExportOptions = Depends(), se
     if not link or (link.expires_at and link.expires_at <= datetime.now(timezone.utc)):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Report link not found or expired")
     scan = await session.scalar(select(Scan).where(Scan.id == link.scan_id).options(
-        selectinload(Scan.findings), selectinload(Scan.progress), selectinload(Scan.scanner_runs)
+        selectinload(Scan.findings).selectinload(Finding.retests),
+        selectinload(Scan.progress),
+        selectinload(Scan.scanner_runs)
     ))
+
     if not scan:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Report not found")
     if options.format in {"pdf", "markdown"}:

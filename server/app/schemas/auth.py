@@ -40,6 +40,10 @@ class AuthUserRead(BaseModel):
     email_verified_at: datetime | None
 
 
+class ProfileUpdateRequest(BaseModel):
+    display_name: str | None = Field(default=None, min_length=2, max_length=160)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str

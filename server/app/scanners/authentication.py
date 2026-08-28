@@ -43,7 +43,18 @@ class AuthenticationFlowScanner(BaseScanner):
         origin = urlparse(target).netloc
         last_otp: str | None = None
         async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(headless=True, args=["--no-sandbox"])
+            try:
+                browser = await playwright.chromium.launch(headless=True, args=["--no-sandbox"])
+            except Exception as error:
+                await self._event(webhook_url, webhook_secret, "scan.failed", context, {
+                    "reason": "playwright_runtime_unavailable",
+                })
+                return [self._finding(
+                    "Authentication browser runtime unavailable.",
+                    "The worker could not start Chromium for this authorized authentication test. Install the Playwright browser runtime in the worker image and retry.",
+                    Severity.high,
+                    {"error_type": type(error).__name__},
+                )]
             browser_context = await browser.new_context(ignore_https_errors=bool(context.ssl_error))
 
             async def route_handler(route):

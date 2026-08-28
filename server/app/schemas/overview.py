@@ -27,22 +27,23 @@ class OverviewScan(BaseModel):
 class OverviewProject(BaseModel):
     id: uuid.UUID
     name: str
-    production_url: str
-    staging_url: str | None
-    preview_url: str | None
+    website_url: str
 
 
 class ProjectOverview(BaseModel):
     project: OverviewProject
-    plan: Literal["starter", "pro", "max"]
+    plan: Literal["free", "starter", "pro", "max"]
+
     latest_scan: OverviewScan | None
     score: float | None
     risk_level: str
     total_findings: int
     severity_counts: dict[str, int]
     category_scores: dict[str, float]
+    category_counts: dict[str, int] = {}
     findings: list[OverviewFinding]
     locked_findings: int
+
     has_scan: bool
     scan_available: bool
     scan_limit_reached: bool = False

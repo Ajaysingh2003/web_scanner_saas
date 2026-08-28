@@ -20,7 +20,8 @@ from app.services.billing import enforce_api_key_limit
 from app.models import ApiKey, AuthIdentity, EmailVerificationToken, PasswordResetToken, RefreshSession, User
 from app.schemas.auth import (ApiKeyCreateRequest, ApiKeyCreated, ApiKeyRead, AuthUserRead,
                               LoginRequest, OAuthCallbackResponse, RefreshRequest, RegisterRequest,
-                              RegisterResponse, TokenResponse, VerifyEmailRequest, EmailRequest, ResetPasswordRequest)
+                              RegisterResponse, TokenResponse, VerifyEmailRequest, EmailRequest, ResetPasswordRequest,
+                              ProfileUpdateRequest)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
@@ -211,6 +212,30 @@ async def me(request: Request, session: AsyncSession = Depends(get_session)):
     if not user or not user.is_active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User is inactive")
     return _user(user)
+
+
+@router.patch("/me", response_model=AuthUserRead)
+async def update_me(payload: ProfileUpdateRequest, request: Request,
+                    session: AsyncSession = Depends(get_session)):
+    user = await session.get(User, require_user(request))
+    if not user or not user.is_active:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User is inactive")
+    user.display_name = payload.display_name.strip() if payload.display_name else None
+    await session.commit()
+    await session.refresh(user)
+    return _user(user)
+
+
+@router.post("/logout-all", status_code=status.HTTP_204_NO_CONTENT)
+async def logout_all(request: Request, session: AsyncSession = Depends(get_session)):
+    user_id = require_user(request)
+    sessions = list((await session.scalars(select(RefreshSession).where(
+        RefreshSession.user_id == user_id, RefreshSession.revoked_at.is_(None)
+    ))).all())
+    now = datetime.now(timezone.utc)
+    for refresh_session in sessions:
+        refresh_session.revoked_at = now
+    await session.commit()
 
 
 @router.post("/api-keys", response_model=ApiKeyCreated, status_code=status.HTTP_201_CREATED)

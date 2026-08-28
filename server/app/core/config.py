@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://aetherscan:aetherscan@localhost:5432/aetherscan"
     redis_url: str = "redis://localhost:6379/0"
     user_agent: str = "AetherScan/1.0 (+https://aetherscan.example)"
-    scanner_timeout_seconds: float = 25.0
+    scanner_timeout_seconds: float = 120.0
     scanner_concurrency: int = 8
     api_key_enabled: bool = True
     api_keys: str = ""

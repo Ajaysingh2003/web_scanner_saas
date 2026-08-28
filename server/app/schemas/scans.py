@@ -30,18 +30,21 @@ def build_remediation_prompt(title: str, description: str, evidence: dict[str, A
 class ScanCreate(BaseModel):
     url: AnyHttpUrl | None = None
     project_id: uuid.UUID | None = None
-    environment: Literal["production", "staging", "preview"] = "production"
+    scan_type: Literal["full", "standard"] = "full"
     scanner_categories: list[str] | None = Field(default=None, max_length=20)
 
     @model_validator(mode="after")
     def require_target(self):
         if self.url is None and self.project_id is None:
             raise ValueError("Provide url or project_id")
+        if self.scan_type == "standard" and not self.scanner_categories:
+            raise ValueError("scanner_categories are required for a standard website scan")
+        if self.scan_type == "full" and self.scanner_categories:
+            self.scan_type = "standard"
         return self
 
 
 class SqlInjectionScanCreate(BaseModel):
-    environment: Literal["production", "staging", "preview"] = "production"
     authorized: bool = Field(
         default=False,
         description="Must be true to confirm authorization for active security testing.",
@@ -58,7 +61,6 @@ class SqlInjectionScanCreate(BaseModel):
 
 
 class XssScanCreate(BaseModel):
-    environment: Literal["production", "staging", "preview"] = "production"
     authorized: bool = Field(
         default=False,
         description="Must be true to confirm authorization for active security testing.",
@@ -102,6 +104,7 @@ class TenantIsolationConfig(BaseModel):
 
 class ExtendedUrlScanCreate(BaseModel):
     url: AnyHttpUrl
+    project_id: uuid.UUID | None = None
     authorized: bool = Field(default=False)
     repository_url: AnyHttpUrl | None = None
     github_token: SecretStr | None = None
@@ -153,6 +156,36 @@ class RobotsCrawlRead(BaseModel):
     findings: list[RobotsCrawlFinding]
 
 
+class FindingRetestRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    finding_id: int
+    scan_id: uuid.UUID
+    retested_by_user_id: uuid.UUID | None = None
+    status: Literal["resolved", "persisting", "target_unreachable", "error"]
+    http_status_code: int | None = None
+    response_time_ms: float | None = None
+    message: str
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class FindingTriageUpdate(BaseModel):
+    triage_status: Literal["open", "in_progress", "accepted_risk", "false_positive", "resolved"]
+    triage_note: str | None = None
+
+
+class FindingRetestResponse(BaseModel):
+    finding_id: int
+    retest_status: Literal["resolved", "persisting", "target_unreachable", "error"]
+    triage_status: str
+    http_status_code: int | None = None
+    response_time_ms: float | None = None
+    message: str
+    tested_at: datetime
+    evidence: dict[str, Any] = Field(default_factory=dict)
+
+
 class FindingRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -164,11 +197,18 @@ class FindingRead(BaseModel):
     evidence: dict[str, Any]
     remediation: str
     confidence: float
+    triage_status: str = "open"
+    triage_note: str | None = None
+    triaged_at: datetime | None = None
+    triaged_by_user_id: uuid.UUID | None = None
+    last_retested_at: datetime | None = None
+    retests: list[FindingRetestRead] = Field(default_factory=list)
 
     @computed_field
     @property
     def remediation_prompt(self) -> str:
         return build_remediation_prompt(self.title, self.description, self.evidence, self.remediation)
+
 
 
 class ScanProgressRead(BaseModel):

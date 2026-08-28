@@ -59,6 +59,14 @@ class ReportShareRead(BaseModel):
     expires_at: datetime | None
 
 
+class ReportShareListItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    expires_at: datetime | None
+    revoked_at: datetime | None
+    created_at: datetime | None
+
+
 class ReportExportOptions(BaseModel):
     format: str = Field(default="json", pattern="^(json|markdown|pdf)$")
     brand_name: str | None = Field(default=None, max_length=120)

@@ -14,12 +14,14 @@ from app.models import ApiKey, BillingAccount, BillingUsage, Project, StripeWebh
 
 
 PLAN_LIMITS: dict[str, dict[str, int | None]] = {
-    "starter": {"projects": 1, "scans_per_month": 10, "api_keys": 1},
+    "free": {"projects": 1, "scans_per_month": 5, "api_keys": 1},
+    "starter": {"projects": 2, "scans_per_month": 50, "api_keys": 2},
     "pro": {"projects": 5, "scans_per_month": 250, "api_keys": 5},
     "max": {"projects": 25, "scans_per_month": None, "api_keys": 25},
 }
 PLANS = tuple(PLAN_LIMITS)
 PLAN_FEATURES: dict[str, tuple[str, ...]] = {
+    "free": ("mcp_server", "preview_finding_details", "basic_security_tests"),
     "starter": ("mcp_server", "full_finding_details", "pdf_export", "remediation_guidance", "active_security_tests"),
     "pro": ("mcp_server", "full_finding_details", "pdf_export", "remediation_guidance", "active_security_tests", "daily_monitoring", "live_threat_detection"),
     "max": ("mcp_server", "full_finding_details", "pdf_export", "remediation_guidance", "active_security_tests", "daily_monitoring", "live_threat_detection", "custom_monitoring", "team_seats", "white_label_reports", "client_workspaces", "commercial_use", "dedicated_support"),
@@ -39,22 +41,51 @@ def _stripe():
 
 
 def plan_limits(plan: str) -> dict[str, int | None]:
-    return PLAN_LIMITS.get(plan, PLAN_LIMITS["starter"])
+    return PLAN_LIMITS.get(plan, PLAN_LIMITS["free"])
 
 
 def plan_features(plan: str) -> tuple[str, ...]:
-    return PLAN_FEATURES.get(plan, PLAN_FEATURES["starter"])
+    return PLAN_FEATURES.get(plan, PLAN_FEATURES["free"])
+
+
+async def sync_billing_account(session: AsyncSession, account: BillingAccount | None) -> BillingAccount | None:
+    if account is None:
+        return None
+
+    now = datetime.now(timezone.utc)
+    # Check if a paid plan subscription has ended or expired
+    if account.plan != "free":
+        is_expired = account.current_period_end is not None and account.current_period_end < now
+        is_invalid_status = account.status not in {"active", "trialing"}
+
+        if is_expired or is_invalid_status:
+            # Strictly downgrade to free
+            account.plan = "free"
+            if is_expired and account.status in {"active", "trialing"}:
+                account.status = "canceled"
+            session.add(account)
+            await session.commit()
+            await session.refresh(account)
+
+    return account
 
 
 async def billing_account(session: AsyncSession, user_id) -> BillingAccount | None:
-    return await session.scalar(select(BillingAccount).where(BillingAccount.user_id == user_id))
+    account = await session.scalar(select(BillingAccount).where(BillingAccount.user_id == user_id))
+    return await sync_billing_account(session, account)
 
 
 async def current_plan(session: AsyncSession, user_id) -> str:
     account = await billing_account(session, user_id)
-    if account and account.status in {"active", "trialing", "past_due"} and account.plan in PLAN_LIMITS:
-        return account.plan
-    return "starter"
+    if not account:
+        return "free"
+    now = datetime.now(timezone.utc)
+    if account.status in {"active", "trialing"}:
+        if account.current_period_end is None or account.current_period_end >= now:
+            if account.plan in PLAN_LIMITS:
+                return account.plan
+    return "free"
+
 
 
 async def enforce_project_limit(session: AsyncSession, user_id) -> str:
@@ -99,7 +130,7 @@ async def reserve_scan_slot(session: AsyncSession, user_id) -> tuple[str, int | 
 
 async def create_checkout_session(session: AsyncSession, user: User, plan: str, interval: str) -> str:
     settings = get_settings()
-    if plan not in PLAN_LIMITS or interval not in {"monthly", "annual"}:
+    if plan not in {"starter", "pro", "max"} or interval not in {"monthly", "annual"}:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid billing plan or interval")
     price_id = getattr(settings, f"stripe_price_{plan}_{interval}").strip()
     if not price_id:
@@ -107,7 +138,7 @@ async def create_checkout_session(session: AsyncSession, user: User, plan: str, 
     stripe = _stripe()
     account = await billing_account(session, user.id)
     if account is None:
-        account = BillingAccount(user_id=user.id, plan="starter", status="inactive")
+        account = BillingAccount(user_id=user.id, plan="free", status="inactive")
         session.add(account)
         await session.flush()
     if account.stripe_subscription_id and account.status in {"active", "trialing", "past_due", "incomplete"}:
@@ -201,7 +232,8 @@ async def process_webhook(session: AsyncSession, event: dict[str, Any]) -> bool:
             account.stripe_subscription_id = data.get("subscription") or account.stripe_subscription_id
         elif event_type.startswith("customer.subscription."):
             account.stripe_subscription_id = data.get("id") or account.stripe_subscription_id
-            account.status = data.get("status", account.status)
+            sub_status = data.get("status", account.status)
+            account.status = sub_status
             account.current_period_end = _timestamp(data.get("current_period_end"))
             account.cancel_at_period_end = bool(data.get("cancel_at_period_end", False))
             price_id = (((data.get("items") or {}).get("data") or [{}])[0].get("price") or {}).get("id")
@@ -211,13 +243,29 @@ async def process_webhook(session: AsyncSession, event: dict[str, Any]) -> bool:
                 settings.stripe_price_pro_monthly: "pro", settings.stripe_price_pro_annual: "pro",
                 settings.stripe_price_max_monthly: "max", settings.stripe_price_max_annual: "max",
             }
-            if event_type == "customer.subscription.deleted":
-                account.plan = "starter"
+            if event_type in ("customer.subscription.deleted", "customer.subscription.paused") or sub_status in {"canceled", "unpaid", "incomplete_expired", "paused"}:
+                account.plan = "free"
                 account.status = "canceled"
-            elif price_map.get(price_id) and data.get("status") in {"active", "trialing", "past_due"}:
+            elif price_map.get(price_id) and sub_status in {"active", "trialing"}:
                 account.plan = price_map[price_id]
-        elif event_type == "invoice.payment_failed":
+            elif sub_status in {"past_due", "unpaid"}:
+                now = datetime.now(timezone.utc)
+                if account.current_period_end and account.current_period_end < now:
+                    account.plan = "free"
+            else:
+                account.plan = "free"
+        elif event_type in ("invoice.payment_failed", "invoice.payment_action_required"):
             account.status = "past_due"
+            now = datetime.now(timezone.utc)
+            if account.current_period_end and account.current_period_end < now:
+                account.plan = "free"
+
+    existing.status = "processed"
+    existing.processed_at = datetime.now(timezone.utc)
+    await session.commit()
+    return True
+
+
     existing.status = "processed"
     existing.processed_at = datetime.now(timezone.utc)
     await session.commit()

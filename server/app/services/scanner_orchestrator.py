@@ -11,8 +11,8 @@ from app.core.config import get_settings
 from app.core.database import SessionFactory
 from app.core.http import fetch_with_ssl_fallback, http_clients
 from app.core.secrets import decrypt_secret
-from app.models import (CompetitorBenchmark, Finding, Scan, ScanProgress, ScanStatus, ScannerRun, ScannerRunStatus,
-                        SupabaseConnection, UptimeMonitor)
+from app.models import (CompetitorBenchmark, Finding, ProjectWebhook, Scan, ScanProgress, ScanStatus,
+                        ScannerRun, ScannerRunStatus, SupabaseConnection, UptimeMonitor)
 from app.core.secrets import decrypt_secret
 from app.scanners.base import ScanContext
 from app.scanners.registry import get_scanners, get_security_test_scanners
@@ -112,7 +112,7 @@ async def run_scan(scan_id, session: AsyncSession) -> None:
     await session.commit()
     settings = get_settings()
     limits = httpx.Limits(max_connections=settings.scanner_concurrency)
-    timeout = httpx.Timeout(settings.scanner_timeout_seconds)
+    timeout = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
     headers = {"User-Agent": settings.user_agent}
     async with http_clients(timeout=timeout, limits=limits, headers=headers) as (verified, insecure):
         _probe, ssl_error = await fetch_with_ssl_fallback(verified, insecure, scan.url)
@@ -148,6 +148,11 @@ async def run_scan(scan_id, session: AsyncSession) -> None:
         async def execute(scanner):
             async with semaphore:
                 await mark_scanner(scanner.name, ScannerRunStatus.running)
+                is_deep = (
+                    security_test_scanners is not None
+                    or scanner.name in {"sqli_security", "xss_active", "authentication", "lighthouse_performance", "extended_security"}
+                )
+                scanner_timeout = 180.0 if is_deep else max(60.0, settings.scanner_timeout_seconds)
                 try:
                     findings = await asyncio.wait_for(
                         scanner.scan(
@@ -161,7 +166,7 @@ async def run_scan(scan_id, session: AsyncSession) -> None:
                                 session_factory=SessionFactory,
                             ),
                         ),
-                        timeout=settings.scanner_timeout_seconds,
+                        timeout=scanner_timeout,
                     )
                     await mark_scanner(scanner.name, ScannerRunStatus.completed, len(findings))
                     return scanner, findings, False, None
@@ -225,4 +230,19 @@ async def run_scan(scan_id, session: AsyncSession) -> None:
                             "previous_scan_id": str(previous.id), "comparison": comparison,
                         },
                     )
+    if scan.project_id:
+        event = "scan.completed" if scan.status == ScanStatus.completed else "scan.failed"
+        webhooks = list((await session.scalars(select(ProjectWebhook).where(
+            ProjectWebhook.project_id == scan.project_id, ProjectWebhook.enabled
+        ))).all())
+        for webhook in webhooks:
+            if event in (webhook.events or []):
+                try:
+                    await send_webhook(webhook.url, decrypt_secret(webhook.secret_encrypted), event, str(scan.id), {
+                        "project_id": str(scan.project_id), "scan_id": str(scan.id),
+                        "status": scan.status.value, "score": scan.overall_score,
+                    })
+                except Exception:
+                    # Delivery failures must never fail or roll back a completed scan.
+                    pass
     await session.commit()

@@ -28,7 +28,7 @@ async def enqueue_due_scans(ctx):
         )).all()
         scanners = get_scanners()
         for project in projects:
-            target = getattr(project, f"{project.schedule_environment}_url", None)
+            target = project.website_url
             project.schedule_next_run_at = now + timedelta(minutes=project.schedule_interval_minutes)
             if not target:
                 continue
@@ -37,7 +37,7 @@ async def enqueue_due_scans(ctx):
             except HTTPException:
                 continue
             scan = Scan(url=target, owner_user_id=project.owner_user_id, project_id=project.id,
-                        environment=project.schedule_environment, status=ScanStatus.queued,
+                        environment="website", status=ScanStatus.queued,
                         metadata_={"project_settings": project.settings or {}, "scheduled": True},
                         progress=ScanProgress(total_scanners=len(scanners)),
                         scanner_runs=[ScannerRun(scanner_name=scanner.name, category=scanner.category,

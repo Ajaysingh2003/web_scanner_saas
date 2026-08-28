@@ -1,3 +1,4 @@
+import json
 import re
 import secrets
 import uuid
@@ -12,9 +13,10 @@ from sqlalchemy.orm import selectinload
 from app.core.api_auth import require_account_user
 from app.core.auth import token_hash
 from app.core.database import get_session
-from app.models import (ApiKey, BillingUsage, CompetitorBenchmark, Project, RoiProfile,
-                        Scan, ScanProgress, ScannerRun, ScannerRunStatus, Severity,
-                        SupabaseConnection)
+from app.models import (ApiKey, BillingUsage, CompetitorBenchmark, Finding, Project, ProjectWebhook,
+                        ProviderConnection, RoiProfile, Scan, ScanProgress, ScannerRun,
+                        ScannerRunStatus, Severity, SupabaseConnection, UptimeIncident,
+                        UptimeMonitor)
 from app.schemas.auth import ApiKeyCreated, ApiKeyRead
 from app.core.responses import ApiResponse, success_response
 from app.schemas.projects import ProjectApiKeyCreate, ProjectCreate, ProjectRead, ProjectUpdate
@@ -22,6 +24,10 @@ from app.schemas.supabase import SupabaseConnectionCreate, SupabaseConnectionRea
 from app.schemas.overview import (OverviewFinding, OverviewProject, OverviewScan,
                                    ProjectOverview)
 from app.schemas.insights import (CompetitorRead, CompetitorUpdate, RoiInput, RoiRead)
+from app.schemas.scans import ScanRead
+from app.schemas.integrations import (ProjectWebhookCreate, ProjectWebhookRead,
+                                      ProviderConnectionCreate, ProviderConnectionRead,
+                                      ProjectActivityRead, ScheduleRead, ScheduleUpdate)
 from app.core.secrets import encrypt_secret
 from app.services.billing import (current_plan, enforce_api_key_limit, enforce_project_limit,
                                   plan_limits)
@@ -45,13 +51,28 @@ def _slug(value: str) -> str:
 
 def _read(project: Project) -> ProjectRead:
     return ProjectRead(id=project.id, name=project.name, slug=project.slug,
-                       production_url=project.production_url, staging_url=project.staging_url,
-                       preview_url=project.preview_url, settings=project.settings or {},
+                       website_url=project.website_url, settings=project.settings or {},
                        schedule_enabled=project.schedule_enabled,
                        schedule_interval_minutes=project.schedule_interval_minutes,
-                       schedule_environment=project.schedule_environment,
                        schedule_next_run_at=project.schedule_next_run_at,
                        created_at=project.created_at, updated_at=project.updated_at)
+
+
+def _schedule_read(project: Project) -> ScheduleRead:
+    return ScheduleRead(enabled=project.schedule_enabled,
+                        interval_minutes=project.schedule_interval_minutes,
+                        next_run_at=project.schedule_next_run_at)
+
+
+def _webhook_read(webhook: ProjectWebhook) -> ProjectWebhookRead:
+    return ProjectWebhookRead(id=webhook.id, url=webhook.url, events=webhook.events or [],
+                              enabled=webhook.enabled, created_at=webhook.created_at,
+                              updated_at=webhook.updated_at)
+
+
+def _provider_read(connection: ProviderConnection) -> ProviderConnectionRead:
+    return ProviderConnectionRead(id=connection.id, provider=connection.provider,
+                                  created_at=connection.created_at, updated_at=connection.updated_at)
 
 
 def _supabase_read(connection: SupabaseConnection) -> SupabaseConnectionRead:
@@ -74,6 +95,176 @@ async def _owned(project_id: uuid.UUID, user_id: str, session: AsyncSession) -> 
     return project
 
 
+@router.get("/{project_id}/schedule", response_model=ApiResponse[ScheduleRead])
+async def get_schedule(project_id: uuid.UUID, request: Request,
+                       session: AsyncSession = Depends(get_session)):
+    project = await _owned(project_id, require_account_user(request), session)
+    return success_response(request, "Project schedule retrieved successfully", _schedule_read(project))
+
+
+@router.patch("/{project_id}/schedule", response_model=ApiResponse[ScheduleRead])
+async def update_schedule(project_id: uuid.UUID, payload: ScheduleUpdate, request: Request,
+                          session: AsyncSession = Depends(get_session)):
+    project = await _owned(project_id, require_account_user(request), session)
+    changes = payload.model_dump(exclude_unset=True)
+    if changes.get("enabled"):
+        plan = await current_plan(session, project.owner_user_id)
+        if plan == "free":
+            raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, "Automated scheduled monitoring requires a paid plan (Starter, Pro, or Max)")
+    if "enabled" in changes:
+        project.schedule_enabled = changes["enabled"]
+    if "interval_minutes" in changes:
+        project.schedule_interval_minutes = changes["interval_minutes"]
+    if project.schedule_enabled and not project.website_url:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A website URL must be configured before enabling schedules")
+    project.schedule_next_run_at = (datetime.now(timezone.utc) + timedelta(minutes=project.schedule_interval_minutes)
+                                     if project.schedule_enabled else None)
+    await session.commit()
+    await session.refresh(project)
+    return success_response(request, "Project schedule updated successfully", _schedule_read(project))
+
+
+@router.delete("/{project_id}/schedule", response_model=ApiResponse[None])
+async def delete_schedule(project_id: uuid.UUID, request: Request,
+                          session: AsyncSession = Depends(get_session)):
+    project = await _owned(project_id, require_account_user(request), session)
+    project.schedule_enabled = False
+    project.schedule_next_run_at = None
+    await session.commit()
+    return success_response(request, "Project schedule paused successfully")
+
+
+@router.get("/{project_id}/scans/latest", response_model=ScanRead)
+async def latest_scan(project_id: uuid.UUID, request: Request,
+                      session: AsyncSession = Depends(get_session)):
+    user_id = require_account_user(request)
+    project = await _owned(project_id, user_id, session)
+    scans = list((await session.scalars(select(Scan).where(Scan.project_id == project.id)
+        .options(
+            selectinload(Scan.findings).selectinload(Finding.retests),
+            selectinload(Scan.progress),
+            selectinload(Scan.scanner_runs),
+        )
+        .order_by(desc(Scan.started_at), desc(Scan.finished_at)).limit(25))).all())
+    scan = next((item for item in scans if item.scan_type == "full" and not (item.metadata_ or {}).get("benchmark")), None)
+    if scan is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No scan has been created for this project")
+    plan = await current_plan(session, uuid.UUID(user_id))
+    if plan == "free":
+        read = ScanRead.model_validate(scan)
+        read.findings = read.findings[:1]
+        return read
+    return scan
+
+
+
+@router.get("/{project_id}/webhooks", response_model=ApiResponse[list[ProjectWebhookRead]])
+async def list_webhooks(project_id: uuid.UUID, request: Request,
+                        session: AsyncSession = Depends(get_session)):
+    project = await _owned(project_id, require_account_user(request), session)
+    values = list((await session.scalars(select(ProjectWebhook).where(ProjectWebhook.project_id == project.id)
+                  .order_by(ProjectWebhook.created_at.desc()))).all())
+    return success_response(request, "Project webhooks retrieved successfully", [_webhook_read(value) for value in values], len(values))
+
+
+@router.post("/{project_id}/webhooks", response_model=ApiResponse[ProjectWebhookRead], status_code=status.HTTP_201_CREATED)
+async def create_webhook(project_id: uuid.UUID, payload: ProjectWebhookCreate, request: Request,
+                         session: AsyncSession = Depends(get_session)):
+    project = await _owned(project_id, require_account_user(request), session)
+    plan = await current_plan(session, project.owner_user_id)
+    if plan == "free":
+        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, "Webhooks require a paid plan (Starter, Pro, or Max)")
+    webhook = ProjectWebhook(project_id=project.id, url=str(payload.url), events=payload.events,
+                              secret_encrypted=encrypt_secret(payload.secret.get_secret_value()))
+    session.add(webhook)
+    await session.commit()
+    await session.refresh(webhook)
+    return success_response(request, "Project webhook created successfully", _webhook_read(webhook))
+
+
+@router.delete("/{project_id}/webhooks/{webhook_id}", response_model=ApiResponse[None])
+async def delete_webhook(project_id: uuid.UUID, webhook_id: uuid.UUID, request: Request,
+                         session: AsyncSession = Depends(get_session)):
+    project = await _owned(project_id, require_account_user(request), session)
+    webhook = await session.scalar(select(ProjectWebhook).where(ProjectWebhook.id == webhook_id,
+                                                                  ProjectWebhook.project_id == project.id))
+    if webhook:
+        await session.delete(webhook)
+        await session.commit()
+    return success_response(request, "Project webhook deleted successfully")
+
+
+@router.get("/{project_id}/connections/{provider}", response_model=ApiResponse[ProviderConnectionRead])
+async def get_provider_connection(project_id: uuid.UUID, provider: str, request: Request,
+                                  session: AsyncSession = Depends(get_session)):
+    project = await _owned(project_id, require_account_user(request), session)
+    connection = await session.scalar(select(ProviderConnection).where(ProviderConnection.project_id == project.id,
+                                                                         ProviderConnection.provider == provider))
+    if not connection:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Provider connection not found")
+    return success_response(request, "Provider connection retrieved successfully", _provider_read(connection))
+
+
+@router.get("/{project_id}/connections", response_model=ApiResponse[list[ProviderConnectionRead]])
+async def list_provider_connections(project_id: uuid.UUID, request: Request,
+                                    session: AsyncSession = Depends(get_session)):
+    project = await _owned(project_id, require_account_user(request), session)
+    connections = list((await session.scalars(
+        select(ProviderConnection).where(ProviderConnection.project_id == project.id)
+        .order_by(ProviderConnection.provider)
+    )).all())
+    return success_response(request, "Provider connections retrieved successfully",
+                            [_provider_read(connection) for connection in connections], len(connections))
+
+
+@router.post("/{project_id}/connections/{provider}", response_model=ApiResponse[ProviderConnectionRead], status_code=status.HTTP_201_CREATED)
+async def connect_provider(project_id: uuid.UUID, provider: str, payload: ProviderConnectionCreate,
+                           request: Request, session: AsyncSession = Depends(get_session)):
+    project = await _owned(project_id, require_account_user(request), session)
+    if provider not in {"github", "firebase", "vercel", "netlify", "cloudflare"}:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unsupported provider")
+    connection = await session.scalar(select(ProviderConnection).where(ProviderConnection.project_id == project.id,
+                                                                         ProviderConnection.provider == provider))
+    if connection is None:
+        connection = ProviderConnection(project_id=project.id, provider=provider,
+                                        configuration_encrypted=encrypt_secret(json.dumps(payload.configuration)))
+        session.add(connection)
+    else:
+        connection.configuration_encrypted = encrypt_secret(json.dumps(payload.configuration))
+    await session.commit()
+    await session.refresh(connection)
+    return success_response(request, "Provider connection saved successfully", _provider_read(connection))
+
+
+@router.delete("/{project_id}/connections/{provider}", response_model=ApiResponse[None])
+async def disconnect_provider(project_id: uuid.UUID, provider: str, request: Request,
+                              session: AsyncSession = Depends(get_session)):
+    project = await _owned(project_id, require_account_user(request), session)
+    connection = await session.scalar(select(ProviderConnection).where(ProviderConnection.project_id == project.id,
+                                                                         ProviderConnection.provider == provider))
+    if connection:
+        await session.delete(connection)
+        await session.commit()
+    return success_response(request, "Provider connection deleted successfully")
+
+
+@router.get("/{project_id}/activity", response_model=ApiResponse[list[ProjectActivityRead]])
+async def project_activity(project_id: uuid.UUID, request: Request,
+                           session: AsyncSession = Depends(get_session)):
+    project = await _owned(project_id, require_account_user(request), session)
+    findings = list((await session.scalars(select(Finding).join(Scan).where(Scan.project_id == project.id,
+        Finding.severity.in_([Severity.critical, Severity.high])).order_by(Finding.created_at.desc()).limit(30))).all())
+    monitor = await session.scalar(select(UptimeMonitor).where(UptimeMonitor.project_id == project.id))
+    incidents = [] if monitor is None else list((await session.scalars(select(UptimeIncident).where(
+        UptimeIncident.monitor_id == monitor.id).order_by(UptimeIncident.started_at.desc()).limit(30))).all())
+    events = ([{"type": "finding", "severity": item.severity.value, "title": item.title,
+                "category": item.category, "occurred_at": item.created_at} for item in findings] +
+              [{"type": "uptime_incident", "severity": "high", "title": "Uptime incident",
+                "category": "uptime", "occurred_at": item.started_at, "status": item.status} for item in incidents])
+    events.sort(key=lambda item: item["occurred_at"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+    return success_response(request, "Project activity retrieved successfully", events[:50], len(events[:50]))
+
+
 @router.get("/{project_id}/overview", response_model=ApiResponse[ProjectOverview])
 async def project_overview(project_id: uuid.UUID, request: Request,
                            session: AsyncSession = Depends(get_session)):
@@ -81,12 +272,14 @@ async def project_overview(project_id: uuid.UUID, request: Request,
     project = await _owned(project_id, user_id, session)
     plan = await current_plan(session, uuid.UUID(user_id))
     scans = list((await session.scalars(
-        select(Scan).options(selectinload(Scan.findings)).where(Scan.project_id == project.id)
+        select(Scan).options(selectinload(Scan.findings).selectinload(Finding.retests)).where(Scan.project_id == project.id)
         .order_by(desc(Scan.started_at), desc(Scan.finished_at)).limit(25)
     )).all())
-    latest = next((candidate for candidate in scans if not (candidate.metadata_ or {}).get("benchmark")), None)
+
+    latest = next((candidate for candidate in scans if candidate.scan_type == "full" and not (candidate.metadata_ or {}).get("benchmark")), None)
     severity_counts = {severity.value: 0 for severity in Severity}
     category_scores: dict[str, float] = {}
+    category_counts: dict[str, int] = {}
     visible_findings: list[OverviewFinding] = []
     total_findings = 0
     risk_level = "not_scanned"
@@ -96,10 +289,22 @@ async def project_overview(project_id: uuid.UUID, request: Request,
         total_findings = len(latest.findings)
         for finding in latest.findings:
             severity_counts[finding.severity.value] += 1
+            cat = finding.category
+            category_counts[cat] = category_counts.get(cat, 0) + 1
+            if cat == "infrastructure":
+                category_counts["domain"] = category_counts.get("domain", 0) + 1
+            if cat in {"vulnerability", "configuration"}:
+                category_counts["security"] = category_counts.get("security", 0) + 1
         scoring = (latest.metadata_ or {}).get("scoring") or {}
         category_scores = scoring.get("category_scores") or {}
         if "domain" not in category_scores and "infrastructure" in category_scores:
             category_scores = {**category_scores, "domain": category_scores["infrastructure"]}
+        sec_scores = [category_scores[k] for k in ("vulnerability", "configuration") if k in category_scores]
+        if "security" not in category_scores and sec_scores:
+            category_scores = {**category_scores, "security": round(sum(sec_scores) / len(sec_scores), 2)}
+        elif "security" not in category_scores and "vulnerability" in category_scores:
+            category_scores = {**category_scores, "security": category_scores["vulnerability"]}
+
         if severity_counts[Severity.critical.value]:
             risk_level = "critical"
         elif severity_counts[Severity.high.value]:
@@ -114,7 +319,7 @@ async def project_overview(project_id: uuid.UUID, request: Request,
             {Severity.critical: 5, Severity.high: 4, Severity.medium: 3,
              Severity.low: 2, Severity.info: 1}[item.severity], item.confidence
         ), reverse=True)
-        preview_limit = None if plan in {"pro", "max"} else 1
+        preview_limit = None if plan in {"starter", "pro", "max"} else 1
         for finding in ordered[:preview_limit]:
             visible_findings.append(OverviewFinding(
                 id=finding.id, category=finding.category, severity=finding.severity.value,
@@ -129,16 +334,12 @@ async def project_overview(project_id: uuid.UUID, request: Request,
     ))
     scan_limit_reached = usage_limit is not None and bool(usage and usage.scans_count >= usage_limit)
     setup = {
-        "production_url_configured": bool(project.production_url),
-        "staging_url_configured": bool(project.staging_url),
-        "preview_url_configured": bool(project.preview_url),
+        "website_url_configured": bool(project.website_url),
         "schedule_enabled": project.schedule_enabled,
-        "schedule_environment": project.schedule_environment,
     }
     data = ProjectOverview(
         project=OverviewProject(id=project.id, name=project.name,
-                                production_url=project.production_url,
-                                staging_url=project.staging_url, preview_url=project.preview_url),
+                                website_url=project.website_url),
         plan=plan, latest_scan=OverviewScan(
             id=latest.id, status=latest.status.value, score=latest.overall_score,
             url=latest.url, environment=latest.environment,
@@ -146,11 +347,13 @@ async def project_overview(project_id: uuid.UUID, request: Request,
         ) if latest else None,
         score=score, risk_level=risk_level, total_findings=total_findings,
         severity_counts=severity_counts, category_scores=category_scores,
+        category_counts=category_counts,
         findings=visible_findings, locked_findings=locked_findings,
         has_scan=latest is not None, scan_available=not scan_limit_reached,
         scan_limit_reached=scan_limit_reached, setup=setup,
     )
     return success_response(request, "Project overview retrieved successfully", data)
+
 
 
 def _competitor_read(item: CompetitorBenchmark) -> CompetitorRead:
@@ -163,7 +366,6 @@ def _competitor_read(item: CompetitorBenchmark) -> CompetitorRead:
 async def list_benchmarks(project_id: uuid.UUID, request: Request,
                           session: AsyncSession = Depends(get_session)):
     user_id = require_account_user(request)
-    await _require_paid(user_id, session)
     project = await _owned(project_id, user_id, session)
     items = list((await session.scalars(select(CompetitorBenchmark).where(
         CompetitorBenchmark.project_id == project.id).order_by(CompetitorBenchmark.created_at))).all())
@@ -175,7 +377,6 @@ async def list_benchmarks(project_id: uuid.UUID, request: Request,
 async def replace_benchmarks(project_id: uuid.UUID, payload: CompetitorUpdate, request: Request,
                              session: AsyncSession = Depends(get_session)):
     user_id = require_account_user(request)
-    await _require_paid(user_id, session)
     project = await _owned(project_id, user_id, session)
     existing = list((await session.scalars(select(CompetitorBenchmark).where(
         CompetitorBenchmark.project_id == project.id))).all())
@@ -215,7 +416,6 @@ async def replace_benchmarks(project_id: uuid.UUID, payload: CompetitorUpdate, r
 async def get_roi(project_id: uuid.UUID, request: Request,
                   session: AsyncSession = Depends(get_session)):
     user_id = require_account_user(request)
-    await _require_paid(user_id, session)
     project = await _owned(project_id, user_id, session)
     profile = await session.get(RoiProfile, project.id)
     if profile is None:
@@ -241,7 +441,6 @@ def _roi_read(profile: RoiProfile) -> RoiRead:
 async def update_roi(project_id: uuid.UUID, payload: RoiInput, request: Request,
                      session: AsyncSession = Depends(get_session)):
     user_id = require_account_user(request)
-    await _require_paid(user_id, session)
     project = await _owned(project_id, user_id, session)
     profile = await session.get(RoiProfile, project.id)
     if profile is None:
@@ -264,15 +463,13 @@ async def create_project(payload: ProjectCreate, request: Request, session: Asyn
     now = datetime.now(timezone.utc)
     project = Project(
         owner_user_id=uuid.UUID(user_id), name=payload.name, slug=slug,
-        production_url=str(payload.production_url), staging_url=str(payload.staging_url) if payload.staging_url else None,
-        preview_url=str(payload.preview_url) if payload.preview_url else None,
+        website_url=str(payload.website_url),
         settings=payload.settings.model_dump(), schedule_enabled=payload.schedule_enabled,
         schedule_interval_minutes=payload.schedule_interval_minutes,
-        schedule_environment=payload.schedule_environment,
         schedule_next_run_at=now + timedelta(minutes=payload.schedule_interval_minutes) if payload.schedule_enabled else None,
     )
-    if project.schedule_enabled and not getattr(project, f"{project.schedule_environment}_url", None):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The scheduled environment must have a configured URL")
+    if project.schedule_enabled and not project.website_url:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A website URL must be configured before enabling schedules")
     session.add(project)
     await session.commit()
     await session.refresh(project)
@@ -300,24 +497,20 @@ async def update_project(project_id: uuid.UUID, payload: ProjectUpdate, request:
     if "name" in changes:
         project.name = changes["name"]
         project.slug = _slug(changes["name"])
-    for field in ("production_url", "staging_url", "preview_url"):
-        if field in changes:
-            value = changes[field]
-            setattr(project, field, str(value) if value else None)
+    if "website_url" in changes:
+        project.website_url = str(changes["website_url"])
     if "settings" in changes and changes["settings"] is not None:
         project.settings = payload.settings.model_dump()
     if "schedule_interval_minutes" in changes:
         project.schedule_interval_minutes = changes["schedule_interval_minutes"]
-    if "schedule_environment" in changes:
-        project.schedule_environment = changes["schedule_environment"]
     if "schedule_enabled" in changes:
         project.schedule_enabled = changes["schedule_enabled"]
-    if project.schedule_enabled and ("schedule_enabled" in changes or "schedule_interval_minutes" in changes or "schedule_environment" in changes):
+    if project.schedule_enabled and ("schedule_enabled" in changes or "schedule_interval_minutes" in changes):
         project.schedule_next_run_at = datetime.now(timezone.utc) + timedelta(minutes=project.schedule_interval_minutes)
     elif not project.schedule_enabled:
         project.schedule_next_run_at = None
-    if project.schedule_enabled and not getattr(project, f"{project.schedule_environment}_url", None):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The scheduled environment must have a configured URL")
+    if project.schedule_enabled and not project.website_url:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A website URL must be configured before enabling schedules")
     await session.commit()
     await session.refresh(project)
     return success_response(request, "Project updated successfully", _read(project))

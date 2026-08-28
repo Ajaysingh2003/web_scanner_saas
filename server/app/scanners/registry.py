@@ -23,6 +23,11 @@ from app.scanners.domain_watchtower import DomainWatchtowerScanner
 from app.scanners.exposed_artifacts import ExposedArtifactsScanner
 from app.scanners.input_validation import InputValidationScanner
 from app.scanners.extended_security import ExtendedSecurityScanner
+from app.scanners.strict_checks import (CacheControlSecurityScanner, CanonicalUrlScanner,
+    CspDeepAuditScanner, HreflangScanner, HttpMethodScanner, ImageSeoScanner,
+    LinkIntegrityScanner, MobileReadinessScanner, OpenGraphScanner,
+    PermissionsPolicyScanner, PrivacySignalScanner, SecurityTxtScanner,
+    SitemapIntegrityScanner, StructuredDataScanner)
 
 SCANNERS: tuple[type[BaseScanner], ...] = (SecurityHeadersScanner, SslTlsScanner,
     ApiKeyExposureScanner, CorsScanner, DnsEmailScanner, CookieSecurityScanner, DebugEndpointsScanner,
@@ -30,7 +35,11 @@ SCANNERS: tuple[type[BaseScanner], ...] = (SecurityHeadersScanner, SslTlsScanner
     CsrfProtectionScanner, TechStackCveScanner, IdorAccessControlScanner, SeoScanner, AeoScanner,
     PerformanceBasicsScanner, AccessibilityBasicsScanner, FileUploadSecurityScanner,
     ComplianceCheckScanner, ExposedArtifactsScanner, BrowserStorageScanner,
-    InputValidationScanner, DomainWatchtowerScanner)
+    InputValidationScanner, DomainWatchtowerScanner, CspDeepAuditScanner,
+    PermissionsPolicyScanner, CacheControlSecurityScanner, HttpMethodScanner,
+    SecurityTxtScanner, SitemapIntegrityScanner, CanonicalUrlScanner,
+    HreflangScanner, StructuredDataScanner, OpenGraphScanner, ImageSeoScanner,
+    MobileReadinessScanner, LinkIntegrityScanner, PrivacySignalScanner)
 
 
 def get_scanners(include_supabase: bool = False) -> list[BaseScanner]:
@@ -51,3 +60,18 @@ def get_security_test_scanners(scan_type: str) -> list[BaseScanner]:
     }:
         return [ExtendedSecurityScanner(scan_type)]
     return []
+
+
+def get_scanner_by_name(name: str) -> BaseScanner | None:
+    for scanner_type in SCANNERS + (SupabaseSecurityScanner, SqlInjectionScanner, ActiveXssScanner, AuthenticationFlowScanner):
+        instance = scanner_type()
+        if instance.name == name:
+            return instance
+    if name.startswith("extended_") or name in {
+        "github_sast", "dependencies", "firebase", "tenant_isolation",
+        "audit_logging", "ddos_resilience", "mobile_api", "hosting_security",
+    }:
+        return ExtendedSecurityScanner(name)
+    return None
+
+

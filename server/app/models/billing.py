@@ -14,7 +14,8 @@ class BillingAccount(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True)
     stripe_customer_id: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
     stripe_subscription_id: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
-    plan: Mapped[str] = mapped_column(String(20), nullable=False, default="starter", server_default="starter")
+    plan: Mapped[str] = mapped_column(String(20), nullable=False, default="free", server_default="free")
+
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="inactive", server_default="inactive")
     current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancel_at_period_end: Mapped[bool] = mapped_column(default=False, server_default="false")
