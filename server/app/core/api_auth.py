@@ -112,6 +112,15 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
         auth_suffix = request.url.path.split("/auth/", 1)[1].strip("/") if "/auth/" in request.url.path else ""
         public_auth = auth_suffix in {"register", "verify-email", "resend-verification", "login", "refresh", "logout",
                                      "forgot-password", "reset-password", "google", "github", "google/callback", "github/callback"}
+        public_billing_route = request.url.path in {
+            "/api/v1/billing/plans", "/api/billing/plans",
+            "/api/v1/billing/webhook", "/api/billing/webhook",
+        }
+        if (public_billing_route or request.url.path.startswith("/api/v1/public/status/")
+                or request.url.path.startswith("/api/public/status/")
+                or request.url.path.startswith("/api/v1/public/reports/")
+                or request.url.path.startswith("/api/public/reports/")):
+            return await call_next(request)
         if public_auth:
             return await call_next(request)
 

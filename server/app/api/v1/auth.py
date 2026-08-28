@@ -16,10 +16,12 @@ from app.core.auth import (create_access_token, hash_password, oauth_authorizati
 from app.core.config import get_settings
 from app.core.database import get_session
 from app.core.api_auth import require_user
+from app.services.billing import enforce_api_key_limit
 from app.models import ApiKey, AuthIdentity, EmailVerificationToken, PasswordResetToken, RefreshSession, User
 from app.schemas.auth import (ApiKeyCreateRequest, ApiKeyCreated, ApiKeyRead, AuthUserRead,
                               LoginRequest, OAuthCallbackResponse, RefreshRequest, RegisterRequest,
-                              RegisterResponse, TokenResponse, VerifyEmailRequest, EmailRequest, ResetPasswordRequest)
+                              RegisterResponse, TokenResponse, VerifyEmailRequest, EmailRequest, ResetPasswordRequest,
+                              ProfileUpdateRequest)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
@@ -212,9 +214,34 @@ async def me(request: Request, session: AsyncSession = Depends(get_session)):
     return _user(user)
 
 
+@router.patch("/me", response_model=AuthUserRead)
+async def update_me(payload: ProfileUpdateRequest, request: Request,
+                    session: AsyncSession = Depends(get_session)):
+    user = await session.get(User, require_user(request))
+    if not user or not user.is_active:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User is inactive")
+    user.display_name = payload.display_name.strip() if payload.display_name else None
+    await session.commit()
+    await session.refresh(user)
+    return _user(user)
+
+
+@router.post("/logout-all", status_code=status.HTTP_204_NO_CONTENT)
+async def logout_all(request: Request, session: AsyncSession = Depends(get_session)):
+    user_id = require_user(request)
+    sessions = list((await session.scalars(select(RefreshSession).where(
+        RefreshSession.user_id == user_id, RefreshSession.revoked_at.is_(None)
+    ))).all())
+    now = datetime.now(timezone.utc)
+    for refresh_session in sessions:
+        refresh_session.revoked_at = now
+    await session.commit()
+
+
 @router.post("/api-keys", response_model=ApiKeyCreated, status_code=status.HTTP_201_CREATED)
 async def create_api_key(payload: ApiKeyCreateRequest, request: Request, session: AsyncSession = Depends(get_session)):
     user_id = require_user(request)
+    await enforce_api_key_limit(session, user_id)
     key_id = secrets.token_urlsafe(12)[:18]
     secret = secrets.token_urlsafe(32)
     key = ApiKey(user_id=user_id, key_id=key_id, name=payload.name, secret_hash=token_hash(secret))
@@ -283,7 +310,7 @@ async def _oauth_user(provider: str, code: str) -> tuple[str, str, str]:
         return str(data["id"]), str(email).lower(), data.get("name") or data.get("login")
 
 
-@router.get("/{provider}/callback", response_model=OAuthCallbackResponse)
+@router.get("/{provider}/callback")
 async def oauth_callback(provider: str, request: Request, code: str = Query(...), state: str = Query(...), session: AsyncSession = Depends(get_session)):
     if provider not in {"google", "github"} or not verify_oauth_state(state, provider):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid OAuth state")
@@ -300,4 +327,13 @@ async def oauth_callback(provider: str, request: Request, code: str = Query(...)
         session.add(AuthIdentity(user_id=user.id, provider=provider, subject=subject, provider_email=email))
     tokens = await _tokens(user, session)
     await session.commit()
-    return OAuthCallbackResponse(provider=provider, access_token=tokens.access_token, refresh_token=tokens.refresh_token, user=tokens.user)
+    response = RedirectResponse(f"{get_settings().auth_frontend_url}/dashboard", status_code=status.HTTP_303_SEE_OTHER)
+    cookie_options = {
+        "httponly": True,
+        "secure": get_settings().auth_frontend_url.startswith("https://"),
+        "samesite": "lax",
+        "path": "/",
+    }
+    response.set_cookie("access_token", tokens.access_token, max_age=tokens.expires_in, **cookie_options)
+    response.set_cookie("refresh_token", tokens.refresh_token, max_age=get_settings().auth_refresh_token_days * 86400, **cookie_options)
+    return response

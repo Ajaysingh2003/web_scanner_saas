@@ -14,7 +14,7 @@ def is_certificate_verification_error(error: BaseException) -> bool:
 async def http_clients(
     *,
     timeout: httpx.Timeout,
-    limits: httpx.Limits,
+    limits: httpx.Limits | None = None,
     headers: dict[str, str],
 ) -> AsyncIterator[tuple[httpx.AsyncClient, httpx.AsyncClient]]:
     """Yield verified and insecure clients for certificate-tolerant scanning.
@@ -22,13 +22,15 @@ async def http_clients(
     The insecure client is only used to continue passive inspection after the
     verified client reports a certificate verification failure.
     """
+    effective_limits = limits or httpx.Limits(max_connections=10, max_keepalive_connections=5)
     async with (
-        httpx.AsyncClient(timeout=timeout, limits=limits, headers=headers,
+        httpx.AsyncClient(timeout=timeout, limits=effective_limits, headers=headers,
                           follow_redirects=True, verify=True) as verified,
-        httpx.AsyncClient(timeout=timeout, limits=limits, headers=headers,
+        httpx.AsyncClient(timeout=timeout, limits=effective_limits, headers=headers,
                           follow_redirects=True, verify=False) as insecure,
     ):
         yield verified, insecure
+
 
 
 async def fetch_with_ssl_fallback(

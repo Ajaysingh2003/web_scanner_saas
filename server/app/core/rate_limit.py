@@ -21,7 +21,12 @@ return {count, redis.call('TTL', KEYS[1])}
 class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         settings = get_settings()
-        if not settings.rate_limit_enabled or not request.url.path.startswith("/api/"):
+        if (not settings.rate_limit_enabled or not request.url.path.startswith("/api/")
+                or request.url.path in {"/api/v1/billing/webhook", "/api/billing/webhook"}
+                or request.url.path.startswith("/api/v1/public/status/")
+                or request.url.path.startswith("/api/public/status/")
+                or request.url.path.startswith("/api/v1/public/reports/")
+                or request.url.path.startswith("/api/public/reports/")):
             return await call_next(request)
 
         redis = getattr(request.app.state, "redis", None)

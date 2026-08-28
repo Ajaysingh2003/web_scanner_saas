@@ -20,12 +20,18 @@ class ActiveXssScanner(BaseScanner):
             )]
 
         options = context.security_test or {}
-        max_pages = int(options.get("max_pages", 50))
+        max_pages = min(int(options.get("max_pages", 20)), 15)
         include_post = bool(options.get("include_post_requests"))
         origin = urlparse(target).netloc
         findings: list[FindingResult] = []
+
         async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(headless=True, args=["--no-sandbox"])
+            try:
+                browser = await playwright.chromium.launch(headless=True, args=["--no-sandbox"])
+            except Exception as error:
+                return [self._finding(
+                    "playwright_unavailable", target, f"worker:{type(error).__name__}", False, 1.0,
+                )]
             browser_context = await browser.new_context(ignore_https_errors=bool(context.ssl_error))
 
             async def route_handler(route):
@@ -83,27 +89,28 @@ class ActiveXssScanner(BaseScanner):
                 continue
             visited.add(url)
             try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=10_000)
-                await page.wait_for_timeout(150)
-            except timeout_error:
-                continue
-            except Exception:
+                await page.goto(url, wait_until="domcontentloaded", timeout=5_000)
+                await page.wait_for_timeout(100)
+            except (timeout_error, Exception):
                 continue
             pages.append(page.url)
-            links = await page.locator("a[href]").evaluate_all(
-                "links => links.map(link => link.href)"
-            )
-            for link in links:
-                candidate = link.split("#", 1)[0]
-                if urlparse(candidate).netloc == origin and candidate not in visited:
-                    queue.append(candidate)
+            try:
+                links = await page.locator("a[href]").evaluate_all(
+                    "links => links.map(link => link.href)"
+                )
+                for link in links:
+                    candidate = link.split("#", 1)[0]
+                    if urlparse(candidate).netloc == origin and candidate not in visited:
+                        queue.append(candidate)
+            except Exception:
+                pass
         return pages
 
     async def _test_query_parameters(self, page, page_url: str, timeout_error) -> list[FindingResult]:
         parsed = urlparse(page_url)
         parameters = dict(parse_qsl(parsed.query, keep_blank_values=True))
         findings: list[FindingResult] = []
-        for parameter in list(parameters)[:10]:
+        for parameter in list(parameters)[:6]:
             token = f"aetherscan-{uuid.uuid4().hex[:12]}"
             payload = self._payload(token)
             values = dict(parameters)
@@ -117,7 +124,7 @@ class ActiveXssScanner(BaseScanner):
     async def _test_forms(self, page, page_url: str, timeout_error) -> list[FindingResult]:
         findings: list[FindingResult] = []
         try:
-            await page.goto(page_url, wait_until="domcontentloaded", timeout=10_000)
+            await page.goto(page_url, wait_until="domcontentloaded", timeout=5_000)
             forms = await page.locator("form").evaluate_all("""
                 forms => forms.map((form, index) => ({
                     index,
@@ -129,17 +136,17 @@ class ActiveXssScanner(BaseScanner):
             """)
         except (timeout_error, Exception):
             return findings
-        for form in forms[:10]:
+        for form in forms[:5]:
             if form["method"] != "POST":
                 continue
-            for field in form["fields"][:10]:
+            for field in form["fields"][:5]:
                 token = f"aetherscan-{uuid.uuid4().hex[:12]}"
                 selector = f"form:nth-of-type({form['index'] + 1}) [name={json.dumps(field['name'])}]"
                 try:
                     await page.locator(selector).fill(self._payload(token))
                     await page.locator(f"form:nth-of-type({form['index'] + 1})").evaluate("form => form.submit()")
-                    await page.wait_for_load_state("domcontentloaded", timeout=10_000)
-                    await page.wait_for_timeout(200)
+                    await page.wait_for_load_state("domcontentloaded", timeout=5_000)
+                    await page.wait_for_timeout(150)
                     executed = await page.evaluate("token => window.__AETHERSCAN_XSS__ === token", token)
                     reflected = token in await page.content()
                     if executed or reflected:
@@ -152,13 +159,11 @@ class ActiveXssScanner(BaseScanner):
 
     async def _navigate_and_verify(self, page, url: str, token: str, timeout_error) -> bool | None:
         try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=10_000)
-            await page.wait_for_timeout(200)
+            await page.goto(url, wait_until="domcontentloaded", timeout=5_000)
+            await page.wait_for_timeout(150)
             executed = await page.evaluate("token => window.__AETHERSCAN_XSS__ === token", token)
             return True if executed else (token in await page.content())
-        except timeout_error:
-            return None
-        except Exception:
+        except (timeout_error, Exception):
             return None
 
     @staticmethod
@@ -168,7 +173,7 @@ class ActiveXssScanner(BaseScanner):
     @staticmethod
     def _finding(technique: str, url: str, parameter: str, executed: bool | str,
                  confidence: float) -> FindingResult:
-        if technique == "playwright_unavailable":
+        if technique in {"playwright_unavailable", "playwright_runtime_unavailable"}:
             return FindingResult(
                 severity=Severity.high,
                 title="Active XSS scanner is unavailable",
