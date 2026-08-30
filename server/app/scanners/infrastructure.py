@@ -174,29 +174,12 @@ class SslTlsScanner(BaseScanner):
                     "Disable TLS 1.0 and TLS 1.1 and require TLS 1.2 or newer.",
                 ))
 
-        response = await context.http.get(target)
-        hsts = response.headers.get("strict-transport-security", "")
-        if not hsts:
-            findings.append(FindingResult(
-                Severity.high, "Strict-Transport-Security header is missing",
-                "HTTPS responses do not advertise an HSTS policy.", {"url": target},
-                "Send Strict-Transport-Security with max-age=31536000 and includeSubDomains after validation.",
-            ))
-        else:
-            match = re.search(r"max-age\s*=\s*(\d+)", hsts, re.I)
-            if not match or int(match.group(1)) < 15_552_000:
-                findings.append(FindingResult(
-                    Severity.medium, "HSTS max-age is too short",
-                    "The HSTS policy is missing max-age or expires sooner than the recommended six-month minimum.",
-                    {"url": target, "strict_transport_security": hsts,
-                     "max_age": int(match.group(1)) if match else None},
-                    "Use an HSTS max-age of at least 15552000 seconds and consider includeSubDomains.",
-                ))
         return findings
 
 
 class DnsEmailScanner(BaseScanner):
     name, category = "dns_email_security", "infrastructure"
+    dkim_selectors = ("google", "selector1", "selector2", "default", "dkim", "mail", "s1", "s2", "k1", "mandrill")
 
     async def scan(self, target, context):
         domain = urlparse(target).hostname
@@ -217,4 +200,26 @@ class DnsEmailScanner(BaseScanner):
         if not any(record.lower().startswith("v=dmarc1") for record in dmarc):
             findings.append(FindingResult(Severity.medium, "DMARC record missing", "No DMARC policy was found for the domain.",
                                           {"domain": domain}, "Publish a DMARC record, start with p=none, and review aggregate reports."))
+        dkim_records = {}
+        for selector in self.dkim_selectors:
+            records = await txt(f"{selector}._domainkey.{domain}")
+            if records:
+                dkim_records[selector] = records
+        valid_dkim = [selector for selector, records in dkim_records.items()
+                      if any("v=dkim1" in record.lower() and re.search(r"(?:^|;)\s*p\s*=\s*[^;\s]+", record, re.I)
+                             for record in records)]
+        malformed_dkim = [selector for selector in dkim_records if selector not in valid_dkim]
+        if not valid_dkim and not malformed_dkim:
+            findings.append(FindingResult(
+                Severity.medium, "DKIM record was not found",
+                "No DKIM TXT record was found for the common selectors checked; outbound mail may not be cryptographically signed.",
+                {"domain": domain, "selectors_checked": list(self.dkim_selectors)},
+                "Publish a DKIM public key at selector._domainkey.example.com using the selector configured by your mail provider.",
+                confidence=0.7))
+        if malformed_dkim:
+            findings.append(FindingResult(
+                Severity.high, "DKIM record is malformed",
+                "A discovered DKIM selector does not contain a valid v=DKIM1 public-key record.",
+                {"selectors": malformed_dkim},
+                "Publish a valid DKIM1 TXT record with a non-empty p= public key."))
         return findings

@@ -35,6 +35,11 @@ class Scan(Base):
     __tablename__ = "scans"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), index=True)
+    environment: Mapped[str | None] = mapped_column(String(20))
+    scan_type: Mapped[str] = mapped_column(String(40), nullable=False, default="full", server_default="full")
+    api_key_id: Mapped[str | None] = mapped_column(String(24), index=True)
     api_key_fingerprint: Mapped[str | None] = mapped_column(String(24), index=True)
     status: Mapped[ScanStatus] = mapped_column(Enum(ScanStatus), default=ScanStatus.queued, index=True)
     overall_score: Mapped[float | None] = mapped_column(Float)
@@ -46,6 +51,7 @@ class Scan(Base):
         cascade="all, delete-orphan")
     scanner_runs: Mapped[list["ScannerRun"]] = relationship(back_populates="scan",
         cascade="all, delete-orphan")
+    project: Mapped["Project | None"] = relationship(back_populates="scans")
 
 
 class ScanProgress(Base):
@@ -85,5 +91,34 @@ class Finding(Base):
     remediation: Mapped[str] = mapped_column(Text)
     confidence: Mapped[float] = mapped_column(Float, default=1.0)
     raw_data: Mapped[dict] = mapped_column(JSON, default=dict)
+    triage_status: Mapped[str] = mapped_column(String(32), default="open", server_default="open", index=True)
+    triage_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    triaged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    triaged_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    last_retested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     scan: Mapped[Scan] = relationship(back_populates="findings")
+    retests: Mapped[list["FindingRetest"]] = relationship(
+        back_populates="finding",
+        cascade="all, delete-orphan",
+        order_by="desc(FindingRetest.created_at)",
+        lazy="selectin",
+    )
+
+
+
+class FindingRetest(Base):
+    __tablename__ = "finding_retests"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    finding_id: Mapped[int] = mapped_column(ForeignKey("findings.id", ondelete="CASCADE"), index=True)
+    scan_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("scans.id", ondelete="CASCADE"), index=True)
+    retested_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(32), index=True)  # "resolved", "persisting", "target_unreachable", "error"
+    http_status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    response_time_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    message: Mapped[str] = mapped_column(Text)
+    evidence: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    finding: Mapped[Finding] = relationship(back_populates="retests")
+
