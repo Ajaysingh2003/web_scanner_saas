@@ -42,27 +42,27 @@ export default function PricingTable() {
       name: "Starter",
       description: "Skip the security jargon. Get instant vulnerability proof and copy-paste code patches.",
       billing_cycles: {
-        monthly: { price_id: "price_starter_monthly", amount: 29 },
-        quarterly: { price_id: "price_starter_quarterly", amount: 26 },
-        annually: { price_id: "price_starter_annual", amount: 24 },
+        monthly: { price_id: "price_starter_monthly", amount: 19 },
+        quarterly: { price_id: "price_starter_quarterly", amount: 102 },
+        annually: { price_id: "price_starter_annual", amount: 182 },
       },
     },
     pro: {
       name: "Pro",
       description: "For fast-moving teams needing continuous daily audits & webhook alerts.",
       billing_cycles: {
-        monthly: { price_id: "price_pro_monthly", amount: 79 },
-        quarterly: { price_id: "price_pro_quarterly", amount: 72 },
-        annually: { price_id: "price_pro_annual", amount: 64 },
+        monthly: { price_id: "price_pro_monthly", amount: 39 },
+        quarterly: { price_id: "price_pro_quarterly", amount: 210 },
+        annually: { price_id: "price_pro_annual", amount: 375 },
       },
     },
     max: {
       name: "Business",
       description: "For agencies & organizations requiring unlimited audits & priority SLA.",
       billing_cycles: {
-        monthly: { price_id: "price_max_monthly", amount: 199 },
-        quarterly: { price_id: "price_max_quarterly", amount: 184 },
-        annually: { price_id: "price_max_annual", amount: 169 },
+        monthly: { price_id: "price_max_monthly", amount: 79 },
+        quarterly: { price_id: "price_max_quarterly", amount: 426 },
+        annually: { price_id: "price_max_annual", amount: 758 },
       },
     },
   };
