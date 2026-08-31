@@ -2,17 +2,8 @@
 
 import Link from "next/link";
 import React, { useEffect, useRef } from "react";
-import {
-  FaGithub,
-  FaXTwitter,
-  FaLinkedinIn,
-  FaDiscord,
-} from "react-icons/fa6";
-import {
-  ArrowRight,
-  ArrowUpRight,
-  Radio,
-} from "lucide-react";
+import { FaGithub, FaXTwitter, FaLinkedinIn, FaDiscord } from "react-icons/fa6";
+import { ArrowRight, ArrowUpRight, Radio } from "lucide-react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import { cn } from "@/lib/utils";
@@ -55,7 +46,7 @@ function NavLink({
       <span className="flex items-center gap-2">
         {label}
 
-        {badge && (
+        {/* {badge && (
           <span
             className="
               rounded-md
@@ -74,10 +65,10 @@ function NavLink({
           >
             {badge}
           </span>
-        )}
+        )} */}
       </span>
 
-      <ArrowUpRight
+      {/* <ArrowUpRight
         className="
           size-3
           shrink-0
@@ -89,7 +80,7 @@ function NavLink({
           group-hover:translate-x-[1px]
           group-hover:text-rose-500
         "
-      />
+      /> */}
     </Link>
   );
 }
@@ -165,56 +156,26 @@ function BigTextDotMatrixCanvas({
       canvas.style.width = `${width}px`;
       canvas.style.height = `${height}px`;
 
-      ctx.setTransform(
-        dpr,
-        0,
-        0,
-        dpr,
-        0,
-        0,
-      );
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      cols = Math.max(
-        1,
-        Math.floor(width / spacing),
-      );
+      cols = Math.max(1, Math.floor(width / spacing));
 
-      rows = Math.max(
-        1,
-        Math.floor(height / spacing),
-      );
+      rows = Math.max(1, Math.floor(height / spacing));
 
       offscreen.width = cols;
       offscreen.height = rows;
 
-      offCtx.clearRect(
-        0,
-        0,
-        cols,
-        rows,
-      );
+      offCtx.clearRect(0, 0, cols, rows);
 
       /*
        * Keep the complete phrase inside
        * the matrix on wide + narrow screens.
        */
-      const widthBasedFont =
-        cols /
-        Math.max(
-          text.length * 0.57,
-          1,
-        );
+      const widthBasedFont = cols / Math.max(text.length * 0.57, 1);
 
-      const heightBasedFont =
-        rows * 0.56;
+      const heightBasedFont = rows * 0.56;
 
-      const fontSize = Math.max(
-        5,
-        Math.min(
-          widthBasedFont,
-          heightBasedFont,
-        ),
-      );
+      const fontSize = Math.max(5, Math.min(widthBasedFont, heightBasedFont));
 
       offCtx.fillStyle = "#000";
 
@@ -223,275 +184,146 @@ function BigTextDotMatrixCanvas({
       offCtx.textAlign = "center";
       offCtx.textBaseline = "middle";
 
-      offCtx.fillText(
-        text,
-        cols / 2,
-        rows / 2,
-      );
+      offCtx.fillText(text, cols / 2, rows / 2);
 
-      pixels =
-        offCtx.getImageData(
-          0,
-          0,
-          cols,
-          rows,
-        ).data;
+      pixels = offCtx.getImageData(0, 0, cols, rows).data;
     };
 
     const draw = (now: number) => {
-      ctx.clearRect(
-        0,
-        0,
-        width,
-        height,
-      );
+      ctx.clearRect(0, 0, width, height);
 
       if (!pixels) return;
 
-      const elapsed =
-        now / 1000;
+      const elapsed = now / 1000;
 
-      const pointer =
-        pointerRef.current;
+      const pointer = pointerRef.current;
 
-      const targetIntensity =
-        pointer.inside ? 1 : 0;
+      const targetIntensity = pointer.inside ? 1 : 0;
 
-      pointer.intensity +=
-        (targetIntensity -
-          pointer.intensity) *
-        0.075;
+      pointer.intensity += (targetIntensity - pointer.intensity) * 0.075;
 
       const hoverRadius = 125;
 
-      for (
-        let column = 0;
-        column < cols;
-        column++
-      ) {
-        for (
-          let row = 0;
-          row < rows;
-          row++
-        ) {
-          const x =
-            column * spacing +
-            spacing / 2;
+      for (let column = 0; column < cols; column++) {
+        for (let row = 0; row < rows; row++) {
+          const x = column * spacing + spacing / 2;
 
-          const y =
-            row * spacing +
-            spacing / 2;
+          const y = row * spacing + spacing / 2;
 
-          const pixelIndex =
-            (row * cols +
-              column) *
-            4;
+          const pixelIndex = (row * cols + column) * 4;
 
-          const textPixel =
-            pixels[
-              pixelIndex + 3
-            ] > 55;
+          const textPixel = pixels[pixelIndex + 3] > 55;
 
-          const dx =
-            x - pointer.x;
+          const dx = x - pointer.x;
 
-          const dy =
-            y - pointer.y;
+          const dy = y - pointer.y;
 
-          const distance =
-            Math.sqrt(
-              dx * dx +
-                dy * dy,
-            );
+          const distance = Math.sqrt(dx * dx + dy * dy);
 
           /*
            * Slow ambient movement.
            * Almost imperceptible.
            */
           const ambient =
-            0.5 +
-            Math.sin(
-              elapsed * 0.7 +
-                x * 0.008 +
-                y * 0.007,
-            ) *
-              0.5;
+            0.5 + Math.sin(elapsed * 0.7 + x * 0.008 + y * 0.007) * 0.5;
 
-          let radius = textPixel
-            ? textDotRadius
-            : ambientDotRadius;
+          let radius = textPixel ? textDotRadius : ambientDotRadius;
 
-          let alpha = textPixel
-            ? 0.24 +
-              ambient * 0.06
-            : 0.025;
+          let alpha = textPixel ? 0.24 + ambient * 0.06 : 0.025;
 
           /*
            * Base:
            * rose for text
            * stone for surrounding dots.
            */
-          let red = textPixel
-            ? 225
-            : 168;
+          let red = textPixel ? 225 : 168;
 
-          let green = textPixel
-            ? 29
-            : 162;
+          let green = textPixel ? 29 : 162;
 
-          let blue = textPixel
-            ? 72
-            : 158;
+          let blue = textPixel ? 72 : 158;
 
-          if (
-            distance <
-              hoverRadius &&
-            pointer.intensity >
-              0.01
-          ) {
+          if (distance < hoverRadius && pointer.intensity > 0.01) {
             const falloff =
-              Math.pow(
-                1 -
-                  distance /
-                    hoverRadius,
-                2,
-              ) *
-              pointer.intensity;
+              Math.pow(1 - distance / hoverRadius, 2) * pointer.intensity;
 
-            alpha = Math.min(
-              0.92,
-              alpha +
-                falloff *
-                  (textPixel
-                    ? 0.55
-                    : 0.13),
-            );
+            alpha = Math.min(0.92, alpha + falloff * (textPixel ? 0.55 : 0.13));
 
-            radius +=
-              falloff *
-              (textPixel
-                ? 0.75
-                : 0.35);
+            radius += falloff * (textPixel ? 0.75 : 0.35);
 
             /*
              * Hover remains brand rose.
              * No rainbow / cyan / indigo.
              */
-            red = Math.round(
-              red +
-                (244 - red) *
-                  falloff,
-            );
+            red = Math.round(red + (244 - red) * falloff);
 
-            green = Math.round(
-              green +
-                (63 - green) *
-                  falloff,
-            );
+            green = Math.round(green + (63 - green) * falloff);
 
-            blue = Math.round(
-              blue +
-                (94 - blue) *
-                  falloff,
-            );
+            blue = Math.round(blue + (94 - blue) * falloff);
           }
 
           ctx.beginPath();
 
           ctx.fillStyle = `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 
-          ctx.arc(
-            x,
-            y,
-            radius,
-            0,
-            Math.PI * 2,
-          );
+          ctx.arc(x, y, radius, 0, Math.PI * 2);
 
           ctx.fill();
         }
       }
     };
 
-    const loop = (
-      now: number,
-    ) => {
+    const loop = (now: number) => {
       if (!running) return;
 
       if (visible) {
         draw(now);
       }
 
-      rafId =
-        requestAnimationFrame(
-          loop,
-        );
+      rafId = requestAnimationFrame(loop);
     };
 
     const start = () => {
-      if (
-        running ||
-        reducedMotion
-      ) {
+      if (running || reducedMotion) {
         return;
       }
 
       running = true;
 
-      rafId =
-        requestAnimationFrame(
-          loop,
-        );
+      rafId = requestAnimationFrame(loop);
     };
 
     const stop = () => {
       running = false;
 
-      cancelAnimationFrame(
-        rafId,
-      );
+      cancelAnimationFrame(rafId);
     };
 
-    const resizeObserver =
-      new ResizeObserver(() => {
-        rebuildTextMask();
+    const resizeObserver = new ResizeObserver(() => {
+      rebuildTextMask();
 
-        if (reducedMotion) {
-          draw(
-            performance.now(),
-          );
+      if (reducedMotion) {
+        draw(performance.now());
+      }
+    });
+
+    resizeObserver.observe(wrapper);
+
+    const intersectionObserver = new IntersectionObserver(
+      ([entry]) => {
+        visible = entry.isIntersecting;
+
+        if (visible && !reducedMotion) {
+          start();
+        } else if (!visible) {
+          stop();
         }
-      });
-
-    resizeObserver.observe(
-      wrapper,
+      },
+      {
+        rootMargin: "80px",
+      },
     );
 
-    const intersectionObserver =
-      new IntersectionObserver(
-        ([entry]) => {
-          visible =
-            entry.isIntersecting;
-
-          if (
-            visible &&
-            !reducedMotion
-          ) {
-            start();
-          } else if (
-            !visible
-          ) {
-            stop();
-          }
-        },
-        {
-          rootMargin: "80px",
-        },
-      );
-
-    intersectionObserver.observe(
-      wrapper,
-    );
+    intersectionObserver.observe(wrapper);
 
     rebuildTextMask();
 
@@ -509,52 +341,33 @@ function BigTextDotMatrixCanvas({
     };
   }, [text]);
 
-  const handlePointerMove = (
-    event: React.PointerEvent<HTMLDivElement>,
-  ) => {
-    const canvas =
-      canvasRef.current;
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const canvas = canvasRef.current;
 
     if (!canvas) return;
 
-    const rect =
-      canvas.getBoundingClientRect();
+    const rect = canvas.getBoundingClientRect();
 
-    pointerRef.current.x =
-      event.clientX -
-      rect.left;
+    pointerRef.current.x = event.clientX - rect.left;
 
-    pointerRef.current.y =
-      event.clientY -
-      rect.top;
+    pointerRef.current.y = event.clientY - rect.top;
 
-    pointerRef.current.inside =
-      true;
+    pointerRef.current.inside = true;
   };
 
   return (
     <div
       ref={wrapperRef}
-      onPointerMove={
-        handlePointerMove
-      }
+      onPointerMove={handlePointerMove}
       onPointerEnter={() => {
-        pointerRef.current.inside =
-          true;
+        pointerRef.current.inside = true;
       }}
       onPointerLeave={() => {
-        pointerRef.current.inside =
-          false;
+        pointerRef.current.inside = false;
       }}
-      className={cn(
-        "relative size-full overflow-hidden",
-        className,
-      )}
+      className={cn("relative size-full overflow-hidden", className)}
     >
-      <canvas
-        ref={canvasRef}
-        className="block size-full"
-      />
+      <canvas ref={canvasRef} className="block size-full" />
 
       {/* edge falloff */}
       <div
@@ -584,28 +397,21 @@ function BigTextDotMatrixCanvas({
 ============================================================================ */
 
 export function AnimatedFooter() {
-  const footerRef =
-    useRef<HTMLElement>(null);
+  const footerRef = useRef<HTMLElement>(null);
 
-  const launchRef =
-    useRef<HTMLDivElement>(null);
+  const launchRef = useRef<HTMLDivElement>(null);
 
   useGSAP(
     () => {
-      const launch =
-        launchRef.current;
+      const launch = launchRef.current;
 
       if (!launch) return;
 
-      const reducedMotion =
-        window.matchMedia(
-          "(prefers-reduced-motion: reduce)",
-        ).matches;
+      const reducedMotion = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
 
-      const elements =
-        launch.querySelectorAll(
-          "[data-launch-reveal]",
-        );
+      const elements = launch.querySelectorAll("[data-launch-reveal]");
 
       if (reducedMotion) {
         gsap.set(elements, {
@@ -621,29 +427,26 @@ export function AnimatedFooter() {
         y: 18,
       });
 
-      const observer =
-        new IntersectionObserver(
-          ([entry]) => {
-            if (
-              !entry.isIntersecting
-            ) {
-              return;
-            }
+      const observer = new IntersectionObserver(
+        ([entry]) => {
+          if (!entry.isIntersecting) {
+            return;
+          }
 
-            gsap.to(elements, {
-              opacity: 1,
-              y: 0,
-              duration: 0.75,
-              stagger: 0.08,
-              ease: "power3.out",
-            });
+          gsap.to(elements, {
+            opacity: 1,
+            y: 0,
+            duration: 0.75,
+            stagger: 0.08,
+            ease: "power3.out",
+          });
 
-            observer.disconnect();
-          },
-          {
-            threshold: 0.2,
-          },
-        );
+          observer.disconnect();
+        },
+        {
+          threshold: 0.2,
+        },
+      );
 
       observer.observe(launch);
 
@@ -674,7 +477,10 @@ export function AnimatedFooter() {
       ===================================================== */}
 
       <div
-      style={{ backgroundImage: "radial-gradient(#D2D2D2 1px, transparent 1px)", backgroundSize: "20px 20px" }}
+        style={{
+          backgroundImage: "radial-gradient(#D2D2D2 1px, transparent 1px)",
+          backgroundSize: "20px 20px",
+        }}
         ref={launchRef}
         className="
           relative
@@ -686,7 +492,6 @@ export function AnimatedFooter() {
       >
         {/* subtle rose field */}
         <div
-        
           className="
             pointer-events-none
             absolute
@@ -716,8 +521,6 @@ export function AnimatedFooter() {
             lg:px-8
           "
         >
-         
-
           {/* headline */}
           {/* <h2
             data-launch-reveal
@@ -750,8 +553,7 @@ export function AnimatedFooter() {
             </span>
           </h2> */}
 
-
-<h2 className="font-heading text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 leading-[1.18]">
+          <h2 className="font-heading text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 leading-[1.18]">
             <span className="tc-mask-child block">Your website changes.</span>
 
             <span className="tc-mask-child block italic font-medium font-serif bg-gradient-to-r from-rose-400 to-white/70 bg-clip-text text-transparent">
@@ -771,12 +573,8 @@ export function AnimatedFooter() {
               sm:text-[14px]
             "
           >
-            Find exposed
-            configuration,
-            security issues and
-            technical regressions
-            before they become
-            bigger problems.
+            Find exposed configuration, security issues and technical
+            regressions before they become bigger problems.
           </p>
 
           {/* CTAs */}
@@ -812,7 +610,6 @@ export function AnimatedFooter() {
               "
             >
               Open Scanlyst
-
               <ArrowRight
                 className="
                   size-4
@@ -825,7 +622,6 @@ export function AnimatedFooter() {
             </Button>
 
             <Button
-
               className="
                 inline-flex
                 items-center
@@ -864,21 +660,15 @@ export function AnimatedFooter() {
               text-stone-400
             "
           >
-            <span>
-              Security audits
-            </span>
+            <span>Security audits</span>
 
             <span className="hidden size-1 rounded-full bg-stone-300 sm:block" />
 
-            <span>
-              Technical monitoring
-            </span>
+            <span>Technical monitoring</span>
 
             <span className="hidden size-1 rounded-full bg-stone-300 sm:block" />
 
-            <span>
-              Actionable remediation
-            </span>
+            <span>Actionable remediation</span>
           </div>
         </div>
       </div>
@@ -930,13 +720,14 @@ export function AnimatedFooter() {
                   text-2xl
                   font-semibold
                   tracking-[-0.035em]
+                   italic
                   text-slate-950
                 "
               >
                 Scanlyst
               </span>
 
-              <span className="size-1.5 rounded-full bg-rose-500" />
+              {/* <span className="size-1.5 rounded-full bg-rose-500" /> */}
             </Link>
 
             <p
@@ -948,11 +739,8 @@ export function AnimatedFooter() {
                 text-slate-500
               "
             >
-              Website security and
-              attack surface
-              intelligence for teams
-              that want findings they
-              can actually act on.
+              Website security and attack surface intelligence for teams that
+              want findings they can actually act on.
             </p>
 
             <div className="mt-6 flex items-center gap-2">
@@ -978,22 +766,15 @@ export function AnimatedFooter() {
                   icon: FaDiscord,
                 },
               ].map((social) => {
-                const Icon =
-                  social.icon;
+                const Icon = social.icon;
 
                 return (
                   <Link
-                    key={
-                      social.label
-                    }
-                    href={
-                      social.href
-                    }
+                    key={social.label}
+                    href={social.href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    aria-label={
-                      social.label
-                    }
+                    aria-label={social.label}
                     className="
                       flex
                       size-9
@@ -1031,38 +812,19 @@ export function AnimatedFooter() {
             "
           >
             <FooterColumn title="Product">
-              <NavLink
-                href="/login"
-                label="Dashboard"
-              />
+              <NavLink href="/login" label="Dashboard" />
 
-              <NavLink
-                href="/#pricing"
-                label="Pricing"
-              />
+              <NavLink href="/#pricing" label="Pricing" />
 
-              <NavLink
-                href="/#features"
-                label="Audit scope"
-              />
+              <NavLink href="/#features" label="Audit scope" />
 
-              <NavLink
-                href="/#monitoring"
-                label="Monitoring"
-                badge="24/7"
-              />
+              <NavLink href="/#monitoring" label="Monitoring" badge="24/7" />
             </FooterColumn>
 
             <FooterColumn title="Support">
-              <NavLink
-                href="/#faq"
-                label="FAQ"
-              />
+              <NavLink href="/#faq" label="FAQ" />
 
-              <NavLink
-                href="mailto:support@scanlyst.io"
-                label="Contact"
-              />
+              <NavLink href="mailto:support@scanlyst.io" label="Contact" />
 
               <NavLink
                 href="https://status.scanlyst.io"
@@ -1073,17 +835,9 @@ export function AnimatedFooter() {
             </FooterColumn>
 
             <FooterColumn title="Legal">
-              <NavLink
-                href="/privacy"
-                label="Privacy"
-              />
+              <NavLink href="/privacy" label="Privacy" />
 
-              <NavLink
-                href="/terms"
-                label="Terms"
-              />
-
-              
+              <NavLink href="/terms" label="Terms" />
             </FooterColumn>
           </div>
         </div>
@@ -1104,10 +858,8 @@ export function AnimatedFooter() {
           sm:h-56
         "
       >
-        <BigTextDotMatrixCanvas
-          text="Scanlyst — Modern Web Security"
-          className="absolute inset-0"
-        />
+        
+        <BigTextDotMatrixCanvas text="scanlyst" className="absolute inset-0" />
 
         <div
           className="
@@ -1123,8 +875,7 @@ export function AnimatedFooter() {
             sm:left-8
           "
         >
-          Move your cursor to
-          inspect
+          Move your cursor to inspect
         </div>
       </div>
 
@@ -1152,16 +903,10 @@ export function AnimatedFooter() {
           "
         >
           <span>
-            ©{" "}
-            {new Date().getFullYear()}{" "}
-            Scanlyst. All rights
-            reserved.
+            © {new Date().getFullYear()} Scanlyst. All rights reserved.
           </span>
 
-          <span>
-            Security should be
-            understandable.
-          </span>
+          <span>Security should be understandable.</span>
         </div>
       </div>
     </footer>
@@ -1192,9 +937,7 @@ function FooterColumn({
         {title}
       </h4>
 
-      <div className="space-y-1">
-        {children}
-      </div>
+      <div className="space-y-1">{children}</div>
     </div>
   );
 }
@@ -1203,5 +946,4 @@ function FooterColumn({
  * Alias to keep the social map above compact.
  * You can replace this with FaLinkedinIn directly if preferred.
  */
-const FaLinkededinSafe =
-  FaLinkedinIn;
+const FaLinkededinSafe = FaLinkedinIn;

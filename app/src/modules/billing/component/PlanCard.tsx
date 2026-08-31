@@ -131,6 +131,15 @@ function PlanCardHeader({
       },
     }),
   );
+
+
+
+
+  const timelineCount={
+    "monthly":1,
+    "quarterly":6,
+    "annually":12
+  }
   return (
     <div
       className={cn(
@@ -164,7 +173,7 @@ function PlanCardHeader({
                 popular && "text-white/80",
               )}
             >
-              ${plan?.billing_cycles?.["monthly"]?.amount}
+              ${plan?.billing_cycles?.["monthly"]?.amount*timelineCount[timeLine]}
             </span>
           )}
         <span className={cn(popular && "text-white")}>

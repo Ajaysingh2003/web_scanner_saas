@@ -104,13 +104,13 @@ function FeaturesSection() {
               >
                 security layer
               </span>{" "}
-              of your
+              of <span className="hidden md:inline-block">your</span>
             </span>
 
             <span ref={lineTwoRef} className="block">
               <span
                 ref={fundamentRef}
-                className="inline-block px-3 py-1 mx-1 rounded-xl bg-zinc-100 text-zinc-400 font-medium"
+                className="inline-block px-3 mt-2 py-1 mx-1 rounded-xl bg-zinc-100 text-zinc-400 font-medium"
               >
                 website
               </span>{" "}
@@ -120,7 +120,7 @@ function FeaturesSection() {
               security
               <span
                 ref={sentimentRef}
-                className="inline-block px-3 py-1 mx-1 rounded-xl bg-zinc-100 text-zinc-400 font-medium"
+                className="inline-block px-3 py-1 mt-2 mx-1 rounded-xl bg-zinc-100 text-zinc-400 font-medium"
               >
                 insights
               </span>
