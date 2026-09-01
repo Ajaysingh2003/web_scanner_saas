@@ -26,7 +26,7 @@ export interface BillingPlan {
 export interface BillingAccount {
   plan: PlanTier;
   status: "active" | "trialing" | "past_due" | "canceled" | "incomplete" | "inactive" | string;
-  stripe_customer_configured: boolean;
+  dodo_customer_configured: boolean;
   subscription_configured: boolean;
   current_period_end: string | null;
   cancel_at_period_end: boolean;

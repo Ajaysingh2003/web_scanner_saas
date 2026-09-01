@@ -38,8 +38,8 @@ async def get_billing_account(request: Request, session: AsyncSession = Depends(
     return BillingAccountRead(
         plan=plan,
         status=account.status if account else "inactive",
-        stripe_customer_configured=bool(account and account.stripe_customer_id),
-        subscription_configured=bool(account and account.stripe_subscription_id),
+        dodo_customer_configured=bool(account and account.dodo_customer_id),
+        subscription_configured=bool(account and account.dodo_subscription_id),
         current_period_end=account.current_period_end if account else None,
         cancel_at_period_end=bool(account and account.cancel_at_period_end),
         usage_scans=usage.scans_count if usage else 0,
@@ -62,8 +62,10 @@ async def create_portal(request: Request, session: AsyncSession = Depends(get_se
 
 
 @router.post("/webhook", status_code=status.HTTP_200_OK, include_in_schema=False)
-async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_session)):
+async def dodo_webhook(request: Request, session: AsyncSession = Depends(get_session)):
     payload = await request.body()
-    event = verify_webhook(payload, request.headers.get("stripe-signature", ""), get_settings().stripe_webhook_secret)
-    await process_webhook(session, event)
+    webhook_id = request.headers.get("webhook-id", "")
+    event = verify_webhook(payload, webhook_id, request.headers.get("webhook-signature", ""),
+                           request.headers.get("webhook-timestamp", ""), get_settings().dodo_payments_webhook_secret)
+    await process_webhook(session, event, webhook_id)
     return {"received": True}

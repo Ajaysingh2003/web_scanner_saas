@@ -10,7 +10,7 @@ import LoadingSkeleton from "@/modules/dashboard/component/LoadingSkeleton";
 import { toast } from "react-hot-toast";
 import { Button } from "@/components/ui/button";
 import { FileText, FileDown, Link as LinkIcon, CheckCircle, AlertCircle, ExternalLink } from "lucide-react";
-import Link from "next/link";
+import { downloadReport, type ReportFormat } from "@/lib/report-export";
 
 export default function ReportsView() {
   const { project, projectId, isLoading: projectLoading } = useActiveProject();
@@ -74,6 +74,16 @@ export default function ReportsView() {
     revokeShareMutation.mutate(linkId);
   };
 
+  const handleExport = async (format: ReportFormat) => {
+    if (!latestCompletedScan?.scan_id) return;
+    try {
+      await downloadReport(latestCompletedScan.scan_id, format);
+      toast.success(`${format === "pdf" ? "PDF" : "Markdown"} report downloaded`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not export this report");
+    }
+  };
+
   if (projectLoading || historyLoading || sharesLoading) {
     return (
       <div className="mx-auto max-w-6xl px-6 py-8">
@@ -116,28 +126,16 @@ export default function ReportsView() {
                 </div>
                 
                 <div className="flex flex-col gap-3">
-                  <Link 
-                    href={`/api/reports/${latestCompletedScan?.scan_id}/export?format=pdf`}
-                    target="_blank"
-                    className="w-full"
-                  >
-                    <Button variant="outline" className="w-full justify-start gap-2 h-11">
+                  <Button variant="outline" className="h-11 w-full justify-start gap-2" onClick={() => void handleExport("pdf")}>
                       <FileText className="h-4 w-4 text-slate-500" />
                       Export as PDF
                       <FileDown className="h-4 w-4 ml-auto text-slate-400" />
-                    </Button>
-                  </Link>
-                  <Link 
-                    href={`/api/reports/${latestCompletedScan?.scan_id}/export?format=markdown`}
-                    target="_blank"
-                    className="w-full"
-                  >
-                    <Button variant="outline" className="w-full justify-start gap-2 h-11">
+                  </Button>
+                  <Button variant="outline" className="h-11 w-full justify-start gap-2" onClick={() => void handleExport("markdown")}>
                       <FileText className="h-4 w-4 text-slate-500" />
                       Export as Markdown
                       <FileDown className="h-4 w-4 ml-auto text-slate-400" />
-                    </Button>
-                  </Link>
+                  </Button>
                 </div>
               </div>
 
@@ -257,5 +255,4 @@ export default function ReportsView() {
     </div>
   );
 }
-
 

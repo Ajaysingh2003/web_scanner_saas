@@ -4,10 +4,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "AetherScan"
+    app_name: str = "Scanlyst"
     database_url: str = "postgresql+asyncpg://aetherscan:aetherscan@localhost:5432/aetherscan"
     redis_url: str = "redis://localhost:6379/0"
-    user_agent: str = "AetherScan/1.0 (+https://aetherscan.example)"
+    user_agent: str = "Scanlyst/1.0 (+https://scanlyst.example)"
     scanner_timeout_seconds: float = 120.0
     scanner_concurrency: int = 8
     api_key_enabled: bool = True
@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool = True
     rate_limit_requests: int = 60
     rate_limit_window_seconds: int = 60
-    rate_limit_key_prefix: str = "aetherscan:rate-limit"
+    rate_limit_key_prefix: str = "scanlyst:rate-limit"
     trust_proxy_headers: bool = False
     auth_jwt_secret: str = ""
     auth_access_token_minutes: int = 15
@@ -30,17 +30,19 @@ class Settings(BaseSettings):
     github_client_id: str = ""
     github_client_secret: str = ""
     github_redirect_uri: str = "http://localhost:8000/api/v1/auth/github/callback"
-    stripe_secret_key: str = ""
-    stripe_webhook_secret: str = ""
-    stripe_price_starter_monthly: str = ""
-    stripe_price_starter_annual: str = ""
-    stripe_price_pro_monthly: str = ""
-    stripe_price_pro_annual: str = ""
-    stripe_price_max_monthly: str = ""
-    stripe_price_max_annual: str = ""
-    stripe_success_url: str = "http://localhost:3000/billing/success"
-    stripe_cancel_url: str = "http://localhost:3000/billing/cancel"
-    stripe_portal_return_url: str = "http://localhost:3000/settings/billing"
+    dodo_payments_api_key: str = ""
+    dodo_payments_webhook_secret: str = ""
+    dodo_payments_environment: str = "live_mode"
+    dodo_payments_api_url: str = ""
+    dodo_product_starter_monthly: str = ""
+    dodo_product_starter_annual: str = ""
+    dodo_product_pro_monthly: str = ""
+    dodo_product_pro_annual: str = ""
+    dodo_product_max_monthly: str = ""
+    dodo_product_max_annual: str = ""
+    dodo_payments_success_url: str = "http://localhost:3000/billing/success"
+    dodo_payments_cancel_url: str = "http://localhost:3000/billing/cancel"
+    dodo_payments_portal_return_url: str = "http://localhost:3000/settings/billing"
     smtp_host: str = ""
     smtp_port: int = 587
     smtp_username: str = ""

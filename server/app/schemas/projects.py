@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import AnyHttpUrl, BaseModel, Field
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
 
 
 class ProjectSettings(BaseModel):
@@ -20,8 +20,9 @@ class ProjectCreate(BaseModel):
 
 
 class ProjectUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str | None = Field(default=None, min_length=1, max_length=120)
-    website_url: AnyHttpUrl | None = None
     settings: ProjectSettings | None = None
     schedule_enabled: bool | None = None
     schedule_interval_minutes: int | None = Field(default=None, ge=60, le=43200)

@@ -50,15 +50,17 @@ def _export_response(scan: Scan, options: ReportExportOptions):
     brand = options.brand_name
     if options.format == "pdf":
         return Response(report_pdf(scan, brand, options.accent_color), media_type="application/pdf",
-                        headers={"Content-Disposition": f'attachment; filename="aetherscan-{scan.id}.pdf"'})
+                        headers={"Content-Disposition": f'attachment; filename="scanlyst-{scan.id}.pdf"'})
     return Response(report_markdown(scan, brand), media_type="text/markdown",
-                    headers={"Content-Disposition": f'attachment; filename="aetherscan-{scan.id}.md"'})
+                    headers={"Content-Disposition": f'attachment; filename="scanlyst-{scan.id}.md"'})
 
 
 @router.get("/{scan_id}/export")
 async def export_scan(scan_id: uuid.UUID, request: Request, options: ReportExportOptions = Depends(),
                       session: AsyncSession = Depends(get_session)):
     scan = await _owned_scan(scan_id, request, session)
+    if scan.status != ScanStatus.completed:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Reports are available after the scan completes")
     plan = await current_plan(session, scan.owner_user_id)
     if options.format == "pdf" and "pdf_export" not in plan_features(plan):
         raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, "PDF report exports require a paid plan (Starter, Pro, or Max)")

@@ -68,7 +68,7 @@ export default function ScanSchedulesView() {
     },
     onError: (error) => toast.error(error.message),
   });
-  const curl = `curl -X POST https://api.aetherscan.dev/api/v1/scans -H 'Authorization: Bearer $AETHERSCAN_API_KEY' -H 'Content-Type: application/json' -d '{"project_id":"${project?.id || "PROJECT_ID"}","environment":"production"}'`;
+  const curl = `curl -X POST https://api.scanlyst.dev/api/v1/scans -H 'Authorization: Bearer $SCANLYST_API_KEY' -H 'Content-Type: application/json' -d '{"project_id":"${project?.id || "PROJECT_ID"}","environment":"production"}'`;
 
   if (!project)
     return (
@@ -157,7 +157,7 @@ export default function ScanSchedulesView() {
               </label>
               <Input
                 type="url"
-                placeholder="https://your-app.com/aetherscan"
+                placeholder="https://your-app.com/scanlyst"
                 value={url}
                 onChange={(event) => setUrl(event.target.value)}
                 className="mt-1"

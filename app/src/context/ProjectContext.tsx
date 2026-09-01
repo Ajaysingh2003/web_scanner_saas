@@ -12,7 +12,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
 import type { Project } from "@/modules/project/types";
 
-const STORAGE_KEY = "aetherscan_active_project_id";
+const STORAGE_KEY = "scanlyst_active_project_id";
 
 interface ProjectContextType {
   project: Project | undefined;

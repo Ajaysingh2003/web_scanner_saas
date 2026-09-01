@@ -44,7 +44,7 @@ function PlanCard({
   return (
     <div
       className={cn(
-        "rounded-2xl border shadow-sm flex flex-col  border-zinc-200 p-1 overflow-hidden",
+        "min-w-0 rounded-2xl border shadow-sm flex flex-col border-zinc-200 p-1 overflow-hidden",
         popular && "bg-background-card-popular",
       )}
     >
@@ -61,7 +61,7 @@ function PlanCard({
               />
               <span
                 className={cn(
-                  "text-accent text-[13px] tracking-wide",
+                  "min-w-0 break-words text-accent text-[13px] tracking-wide",
                   popular && "text-white",
                 )}
               >
@@ -76,7 +76,7 @@ function PlanCard({
           }}
           onMouseLeave={() => sethoverSeeAll(false)}
           variant={"outline"}
-          className={`rounded-xl mt-6 text-xs md:text-[13px] capitalizez md:text-md font-semibold  cursor-pointer border px-3 py-1.5  transition-all duration-200 ${
+          className={`mt-6 flex w-full items-center justify-between rounded-xl text-xs md:text-[13px] capitalizez md:text-md font-semibold cursor-pointer border px-3 py-1.5 transition-all duration-200 ${
             !popular
               ? "bg-white/90 text-accent shadow-sm  hover:bg-white/60  hover:border-zinc-200 hover:text-accent"
               : "border-zinc-800 hover:bg-transparent bg-transparent  text-stone-300 duration-300 transition-all  hover:text-stone-300   hover:shadow-2xs"

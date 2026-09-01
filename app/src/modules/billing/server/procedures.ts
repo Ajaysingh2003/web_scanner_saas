@@ -135,13 +135,13 @@ export const billingRouter = createTRPCRouter({
   }),
 
   /**
-   * Protected mutation to initiate a Stripe checkout session for plan upgrade.
+   * Protected mutation to initiate a Dodo Payments checkout session for plan upgrade.
    */
   createCheckout: checkoutProcedure,
   Createcheckout: checkoutProcedure,
 
   /**
-   * Protected mutation to open the Stripe Customer Portal for managing active subscriptions.
+   * Protected mutation to open the Dodo Payments Customer Portal for managing active subscriptions.
    */
   createPortal: getUserProcedure.mutation(async (): Promise<PortalResponse> => {
     try {
@@ -149,7 +149,7 @@ export const billingRouter = createTRPCRouter({
       const response = await axios.post<PortalResponse>(`${billingApi()}/portal`, {}, { headers });
       return response.data;
     } catch (error) {
-      return billingError(error, "Could not open Stripe customer portal");
+      return billingError(error, "Could not open Dodo Payments customer portal");
     }
   }),
 });

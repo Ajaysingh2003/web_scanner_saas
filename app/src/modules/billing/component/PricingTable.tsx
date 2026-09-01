@@ -19,6 +19,7 @@ import PlanCard, {
   FeatureItem,
   PlanConfig,
 } from "./PlanCard";
+import PlanCardDialog from "./PlanCardDialog";
 
 export default function PricingTable() {
   const [timeLine, setTimeLine] = useState<BillingCycleType>("monthly");
@@ -118,16 +119,16 @@ export default function PricingTable() {
   const renderedPlans = ["free", "starter", "pro", "max"];
 
   return (
-    <div className="space-y-8">
+    <div className="min-w-0 space-y-6 sm:space-y-8">
       {/* Billing Cycle Toggle */}
-      <div className="flex items-center  justify-center">
-        <div className="inline-flex items-center zrelative rounded-xl border border-stone-200 bg-stone-100/80 p-1 shadow-2xs">
+      <div className="flex w-full justify-center overflow-x-auto px-1 pb-1">
+        <div className="inline-flex shrink-0 items-center rounded-xl border border-stone-200 bg-stone-100/80 p-1 shadow-2xs">
           {(["monthly", "quarterly", "annually"] as const).map((cycle) => (
             <button
               key={cycle}
               type="button"
               onClick={() => setTimeLine(cycle)}
-              className={`rounded-lg relative px-3.5 py-1.5 text-xs font-semibold capitalize transition-all cursor-pointer ${
+              className={`relative shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold capitalize transition-all cursor-pointer sm:px-3.5 ${
                 timeLine === cycle
                   ? "bg-white text-slate-900 shadow-2xs"
                   : "text-slate-500 hover:text-slate-800"
@@ -143,14 +144,14 @@ export default function PricingTable() {
       </div>
 
       {/* Plans Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-stretch">
+      <div className="grid min-w-0 grid-cols-1 items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6">
         {renderedPlans.map((tierKey,i) => {
           const config = planConfigs[tierKey];
           const features = planFeatures[tierKey];
           const isPopular = tierKey === "pro";
 
           return (
-           i!=0 && <PlanCard
+           i!=0 && <PlanCardDialog
               key={tierKey}
               plan={config}
               timeLine={timeLine}

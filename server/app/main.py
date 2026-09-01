@@ -28,7 +28,7 @@ async def lifespan(app: FastAPI):
     await app.state.redis.close()
 
 
-app = FastAPI(title="AetherScan API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Scanlyst API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(ApiKeyMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(RequestContextMiddleware)

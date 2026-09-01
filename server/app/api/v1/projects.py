@@ -497,8 +497,6 @@ async def update_project(project_id: uuid.UUID, payload: ProjectUpdate, request:
     if "name" in changes:
         project.name = changes["name"]
         project.slug = _slug(changes["name"])
-    if "website_url" in changes:
-        project.website_url = str(changes["website_url"])
     if "settings" in changes and changes["settings"] is not None:
         project.settings = payload.settings.model_dump()
     if "schedule_interval_minutes" in changes:

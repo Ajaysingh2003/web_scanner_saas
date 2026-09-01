@@ -70,7 +70,6 @@ export const projectRouter = createTRPCRouter({
   update: baseProcedure.input(z.object({
     project_id: z.string().uuid(),
     name: z.string().trim().min(1).max(120).optional(),
-    website_url: z.string().url().optional(),
     schedule_enabled: z.boolean().optional(),
     schedule_interval_minutes: z.number().int().min(60).max(43200).optional(),
   })).mutation(async ({ input }): Promise<Project> => {
@@ -389,4 +388,3 @@ export const projectRouter = createTRPCRouter({
     } catch (error) { return projectError(error, "Could not load retest history"); }
   }),
 });
-

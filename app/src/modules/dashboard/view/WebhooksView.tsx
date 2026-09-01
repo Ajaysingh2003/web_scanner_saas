@@ -116,7 +116,7 @@ export default function WebhooksView() {
               <label className="text-sm font-medium">Payload URL</label>
               <Input
                 type="url"
-                placeholder="https://your-app.com/aetherscan"
+                placeholder="https://your-app.com/scanlyst"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 required

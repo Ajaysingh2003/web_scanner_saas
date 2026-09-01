@@ -237,11 +237,10 @@ export type BillingPlan = {
 export type BillingAccount = {
   plan: "free" | "starter" | "pro" | "max";
   status: string;
-  stripe_customer_configured: boolean;
+  dodo_customer_configured: boolean;
   subscription_configured: boolean;
   current_period_end: string | null;
   cancel_at_period_end: boolean;
   usage_scans: number;
   usage_limit: number | null;
 };
-
