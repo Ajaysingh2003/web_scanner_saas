@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 from app.models.scan import Severity
 from app.scanners.base import BaseScanner, FindingResult, ScanContext
 
-logger = logging.getLogger("aetherscan.scanners.sqli")
+logger = logging.getLogger("scanlyst.scanners.sqli")
 
 def _p(msg: str) -> None:
     print(f"[sqli_scanner] {msg}", flush=True)

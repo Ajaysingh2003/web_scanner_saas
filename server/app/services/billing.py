@@ -1,17 +1,18 @@
-import asyncio
-import hmac
+import base64
 import hashlib
+import hmac
+import json
 import time
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from typing import Any
 
+import httpx
 from fastapi import HTTPException, status
-from sqlalchemy import func, insert, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models import ApiKey, BillingAccount, BillingUsage, Project, StripeWebhookEvent, User
-
+from app.models import ApiKey, BillingAccount, BillingUsage, DodoWebhookEvent, Project, User
 
 PLAN_LIMITS: dict[str, dict[str, int | None]] = {
     "free": {"projects": 1, "scans_per_month": 5, "api_keys": 1},
@@ -28,16 +29,28 @@ PLAN_FEATURES: dict[str, tuple[str, ...]] = {
 }
 
 
-def _stripe():
-    try:
-        import stripe
-    except ImportError as error:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Stripe integration is not installed") from error
+def _dodo_config() -> tuple[str, str]:
     settings = get_settings()
-    if not settings.stripe_secret_key.strip():
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Stripe is not configured")
-    stripe.api_key = settings.stripe_secret_key.strip()
-    return stripe
+    key = settings.dodo_payments_api_key.strip()
+    if not key:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Dodo Payments is not configured")
+    base_url = settings.dodo_payments_api_url.strip()
+    if not base_url:
+        base_url = "https://test.dodopayments.com" if settings.dodo_payments_environment.strip() == "test_mode" else "https://live.dodopayments.com"
+    return key, base_url.rstrip("/")
+
+
+async def _dodo_request(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+    key, base_url = _dodo_config()
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.request(method, f"{base_url}{path}", headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"}, **kwargs)
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as error:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Dodo Payments request failed: {error.response.text[:500]}") from error
+    except (httpx.HTTPError, ValueError) as error:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Could not reach Dodo Payments") from error
 
 
 def plan_limits(plan: str) -> dict[str, int | None]:
@@ -51,41 +64,29 @@ def plan_features(plan: str) -> tuple[str, ...]:
 async def sync_billing_account(session: AsyncSession, account: BillingAccount | None) -> BillingAccount | None:
     if account is None:
         return None
-
     now = datetime.now(timezone.utc)
-    # Check if a paid plan subscription has ended or expired
     if account.plan != "free":
         is_expired = account.current_period_end is not None and account.current_period_end < now
-        is_invalid_status = account.status not in {"active", "trialing"}
-
-        if is_expired or is_invalid_status:
-            # Strictly downgrade to free
+        if is_expired or account.status not in {"active", "trialing"}:
             account.plan = "free"
             if is_expired and account.status in {"active", "trialing"}:
                 account.status = "canceled"
             session.add(account)
             await session.commit()
             await session.refresh(account)
-
     return account
 
 
 async def billing_account(session: AsyncSession, user_id) -> BillingAccount | None:
-    account = await session.scalar(select(BillingAccount).where(BillingAccount.user_id == user_id))
-    return await sync_billing_account(session, account)
+    return await sync_billing_account(session, await session.scalar(select(BillingAccount).where(BillingAccount.user_id == user_id)))
 
 
 async def current_plan(session: AsyncSession, user_id) -> str:
     account = await billing_account(session, user_id)
-    if not account:
-        return "free"
     now = datetime.now(timezone.utc)
-    if account.status in {"active", "trialing"}:
-        if account.current_period_end is None or account.current_period_end >= now:
-            if account.plan in PLAN_LIMITS:
-                return account.plan
+    if account and account.status in {"active", "trialing"} and (account.current_period_end is None or account.current_period_end >= now) and account.plan in PLAN_LIMITS:
+        return account.plan
     return "free"
-
 
 
 async def enforce_project_limit(session: AsyncSession, user_id) -> str:
@@ -93,20 +94,16 @@ async def enforce_project_limit(session: AsyncSession, user_id) -> str:
     limit = plan_limits(plan)["projects"]
     count = await session.scalar(select(func.count(Project.id)).where(Project.owner_user_id == user_id))
     if limit is not None and int(count or 0) >= limit:
-        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED,
-                            f"Your {plan.title()} plan allows {limit} project(s). Upgrade to create another project.")
+        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, f"Your {plan.title()} plan allows {limit} project(s). Upgrade to create another project.")
     return plan
 
 
 async def enforce_api_key_limit(session: AsyncSession, user_id) -> str:
     plan = await current_plan(session, user_id)
     limit = plan_limits(plan)["api_keys"]
-    count = await session.scalar(select(func.count(ApiKey.id)).where(
-        ApiKey.user_id == user_id, ApiKey.revoked_at.is_(None)
-    ))
+    count = await session.scalar(select(func.count(ApiKey.id)).where(ApiKey.user_id == user_id, ApiKey.revoked_at.is_(None)))
     if limit is not None and int(count or 0) >= limit:
-        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED,
-                            f"Your {plan.title()} plan allows {limit} active API key(s). Upgrade to create another key.")
+        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, f"Your {plan.title()} plan allows {limit} active API key(s). Upgrade to create another key.")
     return plan
 
 
@@ -114,158 +111,138 @@ async def reserve_scan_slot(session: AsyncSession, user_id) -> tuple[str, int | 
     plan = await current_plan(session, user_id)
     limit = plan_limits(plan)["scans_per_month"]
     period = datetime.now(timezone.utc).date().replace(day=1)
-    usage = await session.scalar(select(BillingUsage).where(
-        BillingUsage.user_id == user_id, BillingUsage.period_start == period
-    ).with_for_update())
+    usage = await session.scalar(select(BillingUsage).where(BillingUsage.user_id == user_id, BillingUsage.period_start == period).with_for_update())
     if usage is None:
         usage = BillingUsage(user_id=user_id, period_start=period, scans_count=0)
         session.add(usage)
         await session.flush()
     if limit is not None and usage.scans_count >= limit:
-        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED,
-                            f"Your {plan.title()} plan has reached its {limit}-scan monthly limit.")
+        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, f"Your {plan.title()} plan has reached its {limit}-scan monthly limit.")
     usage.scans_count += 1
     return plan, limit
 
 
+def _product_id(plan: str, interval: str) -> str:
+    value = getattr(get_settings(), f"dodo_product_{plan}_{interval}").strip()
+    if not value:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The requested Dodo product is not configured")
+    return value
+
+
 async def create_checkout_session(session: AsyncSession, user: User, plan: str, interval: str) -> str:
-    settings = get_settings()
     if plan not in {"starter", "pro", "max"} or interval not in {"monthly", "annual"}:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid billing plan or interval")
-    price_id = getattr(settings, f"stripe_price_{plan}_{interval}").strip()
-    if not price_id:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The requested Stripe price is not configured")
-    stripe = _stripe()
     account = await billing_account(session, user.id)
+    if account and account.dodo_subscription_id and account.status in {"active", "trialing", "past_due", "on_hold"}:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This account already has a Dodo subscription; use the billing portal to change it")
     if account is None:
+        # Persist the local account before calling Dodo so a very fast webhook
+        # can always resolve the user, even before Dodo customer metadata is
+        # available on the subscription event.
         account = BillingAccount(user_id=user.id, plan="free", status="inactive")
         session.add(account)
-        await session.flush()
-    if account.stripe_subscription_id and account.status in {"active", "trialing", "past_due", "incomplete"}:
-        raise HTTPException(status.HTTP_409_CONFLICT,
-                            "This account already has a Stripe subscription; use the billing portal to change it")
-    if account.stripe_customer_id:
-        customer_id = account.stripe_customer_id
-    else:
-        customer = await asyncio.to_thread(stripe.Customer.create, email=user.email, metadata={"user_id": str(user.id)})
-        customer_id = customer.id
-        account.stripe_customer_id = customer_id
         await session.commit()
-    checkout = await asyncio.to_thread(
-        stripe.checkout.Session.create,
-        mode="subscription",
-        customer=customer_id,
-        line_items=[{"price": price_id, "quantity": 1}],
-        success_url=settings.stripe_success_url,
-        cancel_url=settings.stripe_cancel_url,
-        client_reference_id=str(user.id),
-        metadata={"user_id": str(user.id), "plan": plan, "interval": interval},
-        subscription_data={"metadata": {"user_id": str(user.id), "plan": plan}},
-        allow_promotion_codes=True,
-    )
-    await session.commit()
-    return checkout.url
+    settings = get_settings()
+    result = await _dodo_request("POST", "/checkouts", json={
+        "product_cart": [{"product_id": _product_id(plan, interval), "quantity": 1}],
+        "customer": {"email": user.email, "metadata": {"user_id": str(user.id)}},
+        "return_url": settings.dodo_payments_success_url,
+        "cancel_url": settings.dodo_payments_cancel_url,
+        "metadata": {"user_id": str(user.id), "plan": plan, "interval": interval},
+    })
+    checkout_url = result.get("checkout_url")
+    if not checkout_url:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Dodo Payments did not return a checkout URL")
+    return checkout_url
 
 
 async def create_portal_session(session: AsyncSession, user_id) -> str:
-    settings = get_settings()
     account = await billing_account(session, user_id)
-    if not account or not account.stripe_customer_id:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No Stripe customer is connected to this account")
-    stripe = _stripe()
-    portal = await asyncio.to_thread(
-        stripe.billing_portal.Session.create,
-        customer=account.stripe_customer_id,
-        return_url=settings.stripe_portal_return_url,
-    )
-    return portal.url
+    if not account or not account.dodo_customer_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No Dodo Payments customer is connected to this account")
+    settings = get_settings()
+    result = await _dodo_request("POST", f"/customers/{account.dodo_customer_id}/customer-portal/session", params={"return_url": settings.dodo_payments_portal_return_url})
+    if not result.get("link"):
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Dodo Payments did not return a portal URL")
+    return result["link"]
 
 
-def verify_webhook(payload: bytes, signature: str, secret: str) -> dict[str, Any]:
+def verify_webhook(payload: bytes, webhook_id: str, signature: str, timestamp: str, secret: str) -> dict[str, Any]:
     if not secret:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Stripe webhook secret is not configured")
-    values = {}
-    for item in signature.split(","):
-        key, _, value = item.partition("=")
-        values.setdefault(key, []).append(value)
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Dodo Payments webhook secret is not configured")
     try:
-        timestamp = int(values["t"][0])
-        signatures = values["v1"]
-    except (KeyError, ValueError):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid Stripe signature")
-    if abs(time.time() - timestamp) > 300:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Expired Stripe signature")
-    signed = f"{timestamp}.".encode() + payload
-    expected = hmac.new(secret.encode(), signed, hashlib.sha256).hexdigest()
-    if not any(hmac.compare_digest(expected, candidate) for candidate in signatures):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid Stripe signature")
-    import json
+        timestamp_int = int(timestamp)
+        if abs(time.time() - timestamp_int) > 300:
+            raise ValueError
+        secret_bytes = base64.b64decode(secret.removeprefix("whsec_") + "=" * (-len(secret.removeprefix("whsec_")) % 4))
+        signed = f"{webhook_id}.{timestamp}.".encode() + payload
+        expected = base64.b64encode(hmac.new(secret_bytes, signed, hashlib.sha256).digest()).decode()
+        candidates = [item.split(",", 1)[1] for item in signature.split() if item.startswith("v1,")]
+    except (ValueError, TypeError, base64.binascii.Error):
+        candidates = []
+    if not candidates or not any(hmac.compare_digest(expected, candidate) for candidate in candidates):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid Dodo Payments webhook signature")
     try:
         return json.loads(payload)
     except json.JSONDecodeError as error:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid Stripe event payload") from error
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid Dodo Payments webhook payload") from error
 
 
-def _timestamp(value: Any) -> datetime | None:
-    return datetime.fromtimestamp(value, tz=timezone.utc) if value else None
+def _datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value, tz=timezone.utc)
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
 
 
-async def process_webhook(session: AsyncSession, event: dict[str, Any]) -> bool:
-    event_id = event.get("id")
-    event_type = event.get("type", "")
+async def process_webhook(session: AsyncSession, event: dict[str, Any], webhook_id: str) -> bool:
+    # Dodo uses the Standard Webhooks webhook-id header as the event's
+    # idempotency key; it is not part of the JSON payload.
+    event_id = webhook_id.strip()
+    event_type = event.get("type") or event.get("event_type") or ""
     if not event_id:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Stripe event ID is missing")
-    existing = await session.get(StripeWebhookEvent, event_id)
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Dodo Payments event ID is missing")
+    existing = await session.get(DodoWebhookEvent, event_id)
     if existing and existing.status == "processed":
         return False
     if not existing:
-        existing = StripeWebhookEvent(id=event_id, event_type=event_type, payload=event, status="received")
+        existing = DodoWebhookEvent(id=event_id, event_type=event_type, payload=event, status="received")
         session.add(existing)
         await session.flush()
-    data = event.get("data", {}).get("object", {})
-    customer_id = data.get("customer")
-    if isinstance(customer_id, dict):
-        customer_id = customer_id.get("id")
-    account = await session.scalar(select(BillingAccount).where(BillingAccount.stripe_customer_id == customer_id)) if customer_id else None
+    data = event.get("data") or {}
+    customer = data.get("customer") or {}
+    metadata = data.get("metadata") or {}
+    customer_metadata = customer.get("metadata") or {} if isinstance(customer, dict) else {}
+    customer_id = customer.get("customer_id") if isinstance(customer, dict) else customer
+    customer_email = customer.get("email") if isinstance(customer, dict) else None
+    subscription_id = data.get("subscription_id")
+    user_id = metadata.get("user_id") or customer_metadata.get("user_id")
+    account = await session.scalar(select(BillingAccount).where(BillingAccount.dodo_customer_id == customer_id)) if customer_id else None
+    if account is None and user_id:
+        account = await session.scalar(select(BillingAccount).where(BillingAccount.user_id == user_id))
+    if account is None and customer_email:
+        user = await session.scalar(select(User).where(User.email == customer_email))
+        if user:
+            account = await session.scalar(select(BillingAccount).where(BillingAccount.user_id == user.id))
     if account:
-        if event_type == "checkout.session.completed":
-            account.stripe_subscription_id = data.get("subscription") or account.stripe_subscription_id
-        elif event_type.startswith("customer.subscription."):
-            account.stripe_subscription_id = data.get("id") or account.stripe_subscription_id
-            sub_status = data.get("status", account.status)
-            account.status = sub_status
-            account.current_period_end = _timestamp(data.get("current_period_end"))
-            account.cancel_at_period_end = bool(data.get("cancel_at_period_end", False))
-            price_id = (((data.get("items") or {}).get("data") or [{}])[0].get("price") or {}).get("id")
-            settings = get_settings()
-            price_map = {
-                settings.stripe_price_starter_monthly: "starter", settings.stripe_price_starter_annual: "starter",
-                settings.stripe_price_pro_monthly: "pro", settings.stripe_price_pro_annual: "pro",
-                settings.stripe_price_max_monthly: "max", settings.stripe_price_max_annual: "max",
-            }
-            if event_type in ("customer.subscription.deleted", "customer.subscription.paused") or sub_status in {"canceled", "unpaid", "incomplete_expired", "paused"}:
-                account.plan = "free"
-                account.status = "canceled"
-            elif price_map.get(price_id) and sub_status in {"active", "trialing"}:
-                account.plan = price_map[price_id]
-            elif sub_status in {"past_due", "unpaid"}:
-                now = datetime.now(timezone.utc)
-                if account.current_period_end and account.current_period_end < now:
-                    account.plan = "free"
-            else:
-                account.plan = "free"
-        elif event_type in ("invoice.payment_failed", "invoice.payment_action_required"):
-            account.status = "past_due"
-            now = datetime.now(timezone.utc)
-            if account.current_period_end and account.current_period_end < now:
-                account.plan = "free"
-
-    existing.status = "processed"
-    existing.processed_at = datetime.now(timezone.utc)
-    await session.commit()
-    return True
-
-
+        if customer_id:
+            account.dodo_customer_id = customer_id
+        if subscription_id:
+            account.dodo_subscription_id = subscription_id
+        product_id = data.get("product_id") or ((data.get("product_cart") or [{}])[0].get("product_id"))
+        settings = get_settings()
+        product_map = {getattr(settings, f"dodo_product_{p}_{i}"): p for p in ("starter", "pro", "max") for i in ("monthly", "annual") if getattr(settings, f"dodo_product_{p}_{i}").strip()}
+        active = event_type in {"subscription.active", "subscription.renewed", "subscription.updated", "subscription.plan_changed"} or data.get("status") in {"active", "trialing"}
+        ended = event_type in {"subscription.cancelled", "subscription.expired", "subscription.failed"} or data.get("status") in {"cancelled", "expired", "failed", "on_hold"}
+        if active and product_map.get(product_id):
+            account.plan = product_map[product_id]
+            account.status = data.get("status", "active")
+            account.current_period_end = _datetime(data.get("next_billing_date"))
+            account.cancel_at_period_end = bool(data.get("cancel_at_next_billing_date", False))
+        elif ended:
+            account.plan = "free"
+            account.status = "canceled" if event_type != "subscription.failed" else "past_due"
     existing.status = "processed"
     existing.processed_at = datetime.now(timezone.utc)
     await session.commit()

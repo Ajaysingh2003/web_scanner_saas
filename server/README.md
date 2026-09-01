@@ -1,8 +1,8 @@
-# AetherScan Backend
+# Scanlyst Backend
 
-AetherScan is an async FastAPI service for read-only website security, SEO/AEO,
+Scanlyst is an async FastAPI service for read-only website security, SEO/AEO,
 performance, accessibility, compliance, domain, monitoring, and operational
-scans. It provides user accounts, project ownership, project API keys, Stripe
+scans. It provides user accounts, project ownership, project API keys, Dodo Payments
 plans, asynchronous ARQ workers, signed webhooks, report exports, and public
 status/report links.
 
@@ -83,7 +83,7 @@ Settings are loaded from environment variables and `.env` through
 `app/core/config.py`. Important values:
 
 ```env
-APP_NAME=AetherScan
+APP_NAME=Scanlyst
 DATABASE_URL=postgresql+asyncpg://aetherscan:aetherscan@db:5432/aetherscan
 REDIS_URL=redis://redis:6379/0
 AUTH_JWT_SECRET=replace-with-32-plus-random-characters
@@ -101,7 +101,7 @@ TRUST_PROXY_HEADERS=false
 
 SCANNER_TIMEOUT_SECONDS=25
 SCANNER_CONCURRENCY=8
-USER_AGENT=AetherScan/1.0 (+https://your-domain.example)
+USER_AGENT=Scanlyst/1.0 (+https://your-domain.example)
 ```
 
 Optional providers:
@@ -125,21 +125,23 @@ GITHUB_REDIRECT_URI=http://localhost:8000/api/v1/auth/github/callback
 # Encrypted integration secrets
 SUPABASE_ENCRYPTION_KEY=
 
-# Stripe
-STRIPE_SECRET_KEY=
-STRIPE_WEBHOOK_SECRET=
-STRIPE_PRICE_STARTER_MONTHLY=
-STRIPE_PRICE_STARTER_ANNUAL=
-STRIPE_PRICE_PRO_MONTHLY=
-STRIPE_PRICE_PRO_ANNUAL=
-STRIPE_PRICE_MAX_MONTHLY=
-STRIPE_PRICE_MAX_ANNUAL=
-STRIPE_SUCCESS_URL=http://localhost:3000/billing/success
-STRIPE_CANCEL_URL=http://localhost:3000/billing/cancel
-STRIPE_PORTAL_RETURN_URL=http://localhost:3000/settings/billing
+# Dodo Payments
+DODO_PAYMENTS_API_KEY=
+DODO_PAYMENTS_WEBHOOK_SECRET=
+DODO_PAYMENTS_ENVIRONMENT=test_mode
+DODO_PAYMENTS_API_URL=
+DODO_PRODUCT_STARTER_MONTHLY=
+DODO_PRODUCT_STARTER_ANNUAL=
+DODO_PRODUCT_PRO_MONTHLY=
+DODO_PRODUCT_PRO_ANNUAL=
+DODO_PRODUCT_MAX_MONTHLY=
+DODO_PRODUCT_MAX_ANNUAL=
+DODO_PAYMENTS_SUCCESS_URL=http://localhost:3000/billing/success
+DODO_PAYMENTS_CANCEL_URL=http://localhost:3000/billing/cancel
+DODO_PAYMENTS_PORTAL_RETURN_URL=http://localhost:3000/settings/billing
 ```
 
-Never commit `.env`, JWT secrets, Stripe secrets, OAuth secrets, API keys, or
+Never commit `.env`, JWT secrets, Dodo Payments secrets, OAuth secrets, API keys, or
 integration credentials. The API refuses to start when `AUTH_JWT_SECRET` is too
 short.
 
@@ -362,16 +364,16 @@ conversion rate, and average order value.
 
 ## 11. Billing and plan enforcement
 
-Stripe is the source of subscription truth. The frontend cannot activate a plan.
+Dodo Payments is the source of subscription truth. The frontend cannot activate a plan.
 Only verified, idempotently processed webhooks update billing state.
 
 | Method | Endpoint | Purpose |
 |---|---|---|
 | `GET` | `/api/v1/billing/plans` | Public plan catalog |
 | `GET` | `/api/v1/billing/account` | Current plan and usage |
-| `POST` | `/api/v1/billing/checkout` | Create Stripe Checkout session |
-| `POST` | `/api/v1/billing/portal` | Create Stripe customer portal session |
-| `POST` | `/api/v1/billing/webhook` | Receive verified Stripe events |
+| `POST` | `/api/v1/billing/checkout` | Create Dodo Payments checkout session |
+| `POST` | `/api/v1/billing/portal` | Create Dodo Payments customer portal session |
+| `POST` | `/api/v1/billing/webhook` | Receive verified Dodo Payments events |
 
 Current defaults:
 
@@ -382,7 +384,7 @@ Current defaults:
 | Max | 25 | Unlimited | 25 |
 
 Limits are checked server-side for project creation, API keys, scans, active
-tests, and scheduled jobs. If no active Stripe account exists, the safe default
+tests, and scheduled jobs. If no active Dodo Payments account exists, the safe default
 is Starter.
 
 ## 12. Uptime, incidents, and reports
@@ -478,13 +480,13 @@ development process outside Compose should use `localhost` values instead.
 ## 16. Recommended production checklist
 
 - Use a managed PostgreSQL and Redis with backups and TLS.
-- Generate unique secrets for JWT, encryption, API keys, OAuth, SMTP, and Stripe.
+- Generate unique secrets for JWT, encryption, API keys, OAuth, SMTP, and Dodo Payments.
 - Set `TRUST_PROXY_HEADERS=true` only behind a trusted proxy.
 - Restrict CORS and `AUTH_FRONTEND_URL` to the deployed frontend.
 - Run API and worker as separate horizontally scalable services.
 - Keep scanner concurrency and timeout limits bounded.
 - Install Playwright Chromium only in worker images that run active browser tests.
-- Configure Stripe webhook signature verification and idempotency.
+- Configure Dodo Payments webhook signature verification and idempotency.
 - Rotate API keys and revoke unused credentials.
 - Monitor queue depth, failed scanner runs, rate-limit responses, and uptime incidents.
 - Review active-test authorization logs before enabling production targets.

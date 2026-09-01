@@ -1,1 +1,1 @@
-"""AetherScan application package."""
+"""Scanlyst application package."""

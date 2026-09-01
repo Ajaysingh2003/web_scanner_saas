@@ -101,11 +101,11 @@ const content: Record<
   },
   billing: {
     title: "Billing",
-    description: "Manage your subscription, usage, and Stripe billing portal.",
+    description: "Manage your subscription, usage, and Dodo Payments billing portal.",
   },
   account: {
     title: "Account",
-    description: "Your signed-in AetherScan account and security settings.",
+    description: "Your signed-in Scanlyst account and security settings.",
   },
 };
 
@@ -164,7 +164,7 @@ export default function ProjectSectionView() {
         : routeParts[1] || "dashboard";
   const item = content[section] || {
     title: "Project",
-    description: "Manage this AetherScan project.",
+    description: "Manage this Scanlyst project.",
   };
   const { project, projectId } = useActiveProject();
   const overview = useQuery({
@@ -362,12 +362,11 @@ export default function ProjectSectionView() {
   });
   const [urls, setUrls] = useState({
     name: project?.name || "",
-    website_url: project?.website_url || "",
   });
   const [displayName, setDisplayName] = useState("");
   const saveProject = useMutation({
     mutationFn: () =>
-      client.project.update.mutate({ project_id: projectId, ...urls }),
+      client.project.update.mutate({ project_id: projectId, name: urls.name }),
     onSuccess: () => {
       toast.success("Project settings saved");
       queryClient.invalidateQueries({ queryKey: trpc.project.list.queryKey() });
@@ -679,7 +678,7 @@ export default function ProjectSectionView() {
                 <Input
                   className="mt-4"
                   type="url"
-                  placeholder="https://your-app.com/aetherscan"
+                  placeholder="https://your-app.com/scanlyst"
                   value={webhookUrl}
                   onChange={(event) => setWebhookUrl(event.target.value)}
                 />
@@ -812,19 +811,18 @@ export default function ProjectSectionView() {
                   }
                   placeholder="Project name"
                 />
-                <Input
-                  type="url"
-                  value={urls.website_url}
-                  onChange={(event) =>
-                    setUrls({ ...urls, website_url: event.target.value })
-                  }
-                  placeholder="Website URL"
-                />
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+                  <p className="text-xs font-medium text-slate-500">Website URL</p>
+                  <p className="mt-1 truncate text-sm text-slate-700" title={project.website_url}>
+                    {project.website_url}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">The website URL is fixed for this project.</p>
+                </div>
               </div>
               <Button
                 className="bg-background-btn mt-4 text-white"
                 disabled={
-                  saveProject.isPending || !urls.name || !urls.website_url
+                  saveProject.isPending || !urls.name
                 }
                 onClick={() => saveProject.mutate()}
               >
@@ -846,7 +844,7 @@ export default function ProjectSectionView() {
                     variant="outline"
                     disabled={
                       openPortal.isPending ||
-                      !billingAccount.data?.stripe_customer_configured
+                      !billingAccount.data?.dodo_customer_configured
                     }
                     onClick={() => openPortal.mutate()}
                   >
@@ -945,7 +943,7 @@ export default function ProjectSectionView() {
                   </div>
                 </div>
                 <p className="mt-4 font-content text-xs leading-5 text-slate-500">
-                  Two-step sign-in is not enabled for AetherScan accounts yet.
+                  Two-step sign-in is not enabled for Scanlyst accounts yet.
                   Project scanner OTP sessions are separate and never become
                   account credentials.
                 </p>

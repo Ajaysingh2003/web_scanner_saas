@@ -70,7 +70,7 @@ class ActiveXssScanner(BaseScanner):
         return findings[:50]
 
     async def _test_fragment(self, page, page_url: str, timeout_error) -> FindingResult | None:
-        token = f"aetherscan-{uuid.uuid4().hex[:12]}"
+        token = f"scanlyst-{uuid.uuid4().hex[:12]}"
         parsed = urlparse(page_url)
         fragment_url = urlunparse(parsed._replace(fragment=self._payload(token)))
         result = await self._navigate_and_verify(page, fragment_url, token, timeout_error)
@@ -111,7 +111,7 @@ class ActiveXssScanner(BaseScanner):
         parameters = dict(parse_qsl(parsed.query, keep_blank_values=True))
         findings: list[FindingResult] = []
         for parameter in list(parameters)[:6]:
-            token = f"aetherscan-{uuid.uuid4().hex[:12]}"
+            token = f"scanlyst-{uuid.uuid4().hex[:12]}"
             payload = self._payload(token)
             values = dict(parameters)
             values[parameter] = payload
@@ -140,14 +140,14 @@ class ActiveXssScanner(BaseScanner):
             if form["method"] != "POST":
                 continue
             for field in form["fields"][:5]:
-                token = f"aetherscan-{uuid.uuid4().hex[:12]}"
+                token = f"scanlyst-{uuid.uuid4().hex[:12]}"
                 selector = f"form:nth-of-type({form['index'] + 1}) [name={json.dumps(field['name'])}]"
                 try:
                     await page.locator(selector).fill(self._payload(token))
                     await page.locator(f"form:nth-of-type({form['index'] + 1})").evaluate("form => form.submit()")
                     await page.wait_for_load_state("domcontentloaded", timeout=5_000)
                     await page.wait_for_timeout(150)
-                    executed = await page.evaluate("token => window.__AETHERSCAN_XSS__ === token", token)
+                    executed = await page.evaluate("token => window.__SCANLYST_XSS__ === token", token)
                     reflected = token in await page.content()
                     if executed or reflected:
                         findings.append(self._finding(
@@ -161,14 +161,14 @@ class ActiveXssScanner(BaseScanner):
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=5_000)
             await page.wait_for_timeout(150)
-            executed = await page.evaluate("token => window.__AETHERSCAN_XSS__ === token", token)
+            executed = await page.evaluate("token => window.__SCANLYST_XSS__ === token", token)
             return True if executed else (token in await page.content())
         except (timeout_error, Exception):
             return None
 
     @staticmethod
     def _payload(token: str) -> str:
-        return f'"><svg onload="window.__AETHERSCAN_XSS__={json.dumps(token)}"></svg>'
+        return f'"><svg onload="window.__SCANLYST_XSS__={json.dumps(token)}"></svg>'
 
     @staticmethod
     def _finding(technique: str, url: str, parameter: str, executed: bool | str,

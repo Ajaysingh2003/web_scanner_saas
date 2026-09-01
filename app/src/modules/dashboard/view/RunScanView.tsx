@@ -264,7 +264,7 @@ export default function RunScanView() {
             identifier_from: "test_account.email",
             password_selector: "input[name=password]",
             submit_selector: "button[type=submit]",
-            wrong_password: rateLimit ? "invalid-aetherscan-password" : undefined,
+            wrong_password: rateLimit ? "invalid-scanlyst-password" : undefined,
             attempts: 5,
             delay_ms: 500,
           },

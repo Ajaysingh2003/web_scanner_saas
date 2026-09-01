@@ -8,7 +8,7 @@ from app.models import Severity
 from app.scanners.base import BaseScanner, FindingResult, ScanContext
 
 
-PROBE = "aetherscan-input-probe-7f3c"
+PROBE = "scanlyst-input-probe-7f3c"
 
 
 class InputValidationScanner(BaseScanner):

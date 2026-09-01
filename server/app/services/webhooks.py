@@ -27,8 +27,8 @@ async def send_webhook(url: str, secret: str, event: str, scan_id: str,
             async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
                 response = await client.post(url, content=body, headers={
                     "content-type": "application/json",
-                    "x-aetherscan-signature": webhook_signature(secret, timestamp, body),
-                    "x-aetherscan-event": event,
+                    "x-scanlyst-signature": webhook_signature(secret, timestamp, body),
+                    "x-scanlyst-event": event,
                 })
             if 200 <= response.status_code < 300:
                 return True

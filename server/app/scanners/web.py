@@ -155,8 +155,8 @@ class CorsScanner(BaseScanner):
     name, category = "cors", "vulnerability"
 
     async def scan(self, target, context):
-        responses = [await context.http.options(target, headers={"Origin": "https://aetherscan.invalid"}),
-                     await context.http.get(target, headers={"Origin": "https://aetherscan.invalid"})]
+        responses = [await context.http.options(target, headers={"Origin": "https://scanlyst.invalid"}),
+                     await context.http.get(target, headers={"Origin": "https://scanlyst.invalid"})]
         response = next((item for item in responses if item.headers.get("access-control-allow-origin")), responses[0])
         allow_origin = response.headers.get("access-control-allow-origin", "")
         allow_credentials = response.headers.get("access-control-allow-credentials", "").lower()
@@ -168,7 +168,7 @@ class CorsScanner(BaseScanner):
             severity = Severity.medium
             title = "Wildcard CORS policy"
             fix = "Restrict Access-Control-Allow-Origin to the trusted application origins."
-        elif allow_origin == "https://aetherscan.invalid":
+        elif allow_origin == "https://scanlyst.invalid":
             return [FindingResult(Severity.high, "CORS reflects arbitrary origins",
                 "The target reflects an untrusted Origin in its CORS response.",
                 {"allow_origin": allow_origin, "allow_credentials": allow_credentials},
@@ -377,17 +377,17 @@ class OpenRedirectScanner(BaseScanner):
         parsed = urlparse(target)
         query = dict(parse_qsl(parsed.query, keep_blank_values=True))
         if not query:
-            query = {name: "https://aetherscan.invalid/" for name in self.parameter_names}
+            query = {name: "https://scanlyst.invalid/" for name in self.parameter_names}
         findings = []
         for name in tuple(query):
             if name.lower() not in self.parameter_names:
                 continue
             test_query = dict(query)
-            test_query[name] = "https://aetherscan.invalid/"
+            test_query[name] = "https://scanlyst.invalid/"
             candidate = urlunparse(parsed._replace(query=urlencode(test_query)))
             response = await context.http.get(candidate, follow_redirects=False)
             location = response.headers.get("location", "")
-            if 300 <= response.status_code < 400 and urlparse(location).hostname == "aetherscan.invalid":
+            if 300 <= response.status_code < 400 and urlparse(location).hostname == "scanlyst.invalid":
                 findings.append(FindingResult(Severity.high, "Potential open redirect",
                     "A redirect parameter caused the server to redirect to an external host.",
                     {"parameter": name, "location": location},

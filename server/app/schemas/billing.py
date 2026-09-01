@@ -16,7 +16,7 @@ class BillingPlanRead(BaseModel):
 class BillingAccountRead(BaseModel):
     plan: str
     status: str
-    stripe_customer_configured: bool
+    dodo_customer_configured: bool
     subscription_configured: bool
     current_period_end: datetime | None
     cancel_at_period_end: bool

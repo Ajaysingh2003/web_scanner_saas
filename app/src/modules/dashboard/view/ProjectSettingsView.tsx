@@ -19,17 +19,15 @@ export default function ProjectSettingsView() {
   const queryClient = useQueryClient();
 
   const [name, setName] = useState("");
-  const [url, setUrl] = useState("");
 
   useEffect(() => {
     if (project) {
       setName(project.name);
-      setUrl(project.website_url);
     }
   }, [project]);
 
   const updateMutation = useMutation({
-    mutationFn: (variables: { project_id: string; name: string; website_url: string }) =>
+    mutationFn: (variables: { project_id: string; name: string }) =>
       client.project.update.mutate(variables),
     onSuccess: () => {
       toast.success("Project settings saved");
@@ -59,8 +57,8 @@ export default function ProjectSettingsView() {
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !url.trim()) return;
-    updateMutation.mutate({ project_id: project.id, name: name.trim(), website_url: url.trim() });
+    if (!name.trim()) return;
+    updateMutation.mutate({ project_id: project.id, name: name.trim() });
   };
 
   return (
@@ -82,13 +80,8 @@ export default function ProjectSettingsView() {
           
           <div className="space-y-2">
             <label className="text-sm font-medium">Website URL</label>
-            <Input
-              type="url"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://example.com"
-              required
-            />
+            <Input value={project.website_url} readOnly className="bg-slate-50 text-slate-500" />
+            <p className="text-xs text-slate-500">The website URL is fixed for this project.</p>
           </div>
 
           <div className="space-y-2">

@@ -73,6 +73,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import DialogPricing from "@/modules/billing/component/DialogPricing";
 
 type NavItem = {
   label: string;
@@ -239,7 +240,7 @@ function NavigationGroup({ label, items }: { label: string; items: NavItem[] }) 
                   onClick={item.children ? () => toggleExpand(item.href) : undefined}
                   className={cn(
                     "relative flex h-8.5 w-full items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-colors duration-150",
-                    "text-muted-foreground hover:bg-accent hover:text-foreground [&:hover_svg]:text-foreground",
+                    "text-muted-foreground hover:bg-accentz hover:text-foreground [&:hover_svg]:text-foreground",
                     (active || hasActiveChild) &&
                       "bg-rose-50/70 font-semibold text-foreground"
                   )}
@@ -342,13 +343,18 @@ function SidebarUpgradeCard() {
   const nextPlanLabel = nextPlan ? nextPlan.charAt(0).toUpperCase() + nextPlan.slice(1) : null;
 
 
+  const [isOpen, setIsOpen] = useState(false);
   return (
     <div
       className={cn(
-        "rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition-all duration-200",
+        "rounded-2xl border relative  border-slate-200 bgz-white p-3 shadow-sm transition-all duration-200",
         !open && "flex flex-col items-center gap-2 p-2"
       )}
     >
+      <div className="flex top-0 bg-red-300 absolute items-center justify-between gap-2 ">
+
+      <DialogPricing open={isOpen} onClose={() => setIsOpen(false)} />
+      </div>
       <div className={cn("flex items-center gap-3", !open && "flex-col")}>
         <div
   className={cn(
@@ -377,6 +383,7 @@ function SidebarUpgradeCard() {
 
       {open && (
         <>
+        
           <div className="mt-3 space-y-1">
             <div className="flex justify-between text-xs">
               <span className="text-slate-500">Scan usage</span>
@@ -409,12 +416,12 @@ function SidebarUpgradeCard() {
                 size="sm"
                 className="w-full bg-background-btn text-xs text-white shadow-sm shadow-indigo-200 transition-all hover:bg-indigo-700 hover:shadow-indigo-300 disabled:opacity-50"
                 disabled={checkout.isPending}
-                onClick={() => checkout.mutate(nextPlan)}
+                onClick={() => setIsOpen(true)}
               >
                 {checkout.isPending ? "Opening checkout…" : `Upgrade to ${nextPlanLabel}`}
               </Button>
             )}
-            {account?.stripe_customer_configured && (
+            {account?.dodo_customer_configured && (
               <Button
                 size="sm"
                 variant="outline"

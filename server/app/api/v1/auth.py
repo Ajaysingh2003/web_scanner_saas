@@ -47,7 +47,7 @@ async def _send_verification(email: str, token: str) -> None:
     if not settings.smtp_host:
         return
     message = EmailMessage()
-    message["Subject"] = "Verify your AetherScan email"
+    message["Subject"] = "Verify your Scanlyst email"
     message["From"] = settings.smtp_from or settings.smtp_username
     message["To"] = email
     message.set_content(f"Verify your email: {settings.auth_frontend_url}/verify-email?token={token}")
@@ -66,7 +66,7 @@ async def _send_password_reset(email: str, token: str) -> None:
     if not settings.smtp_host:
         return
     message = EmailMessage()
-    message["Subject"] = "Reset your AetherScan password"
+    message["Subject"] = "Reset your Scanlyst password"
     message["From"] = settings.smtp_from or settings.smtp_username
     message["To"] = email
     message.set_content(f"Reset your password: {settings.auth_frontend_url}/reset-password?token={token}")

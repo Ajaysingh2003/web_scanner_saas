@@ -95,7 +95,7 @@ export default function BillingView() {
             )}
           </div>
           <div>
-            {account.stripe_customer_configured && (
+            {account.dodo_customer_configured && (
               <Button
                 variant="outline"
                 onClick={() => portalMutation.mutate()}
@@ -199,4 +199,3 @@ export default function BillingView() {
     </div>
   );
 }
-

@@ -41,6 +41,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { useTRPC, useTRPCClient } from "@/trpc/client";
+import { downloadReport } from "@/lib/report-export";
 
 const pillars = [
   { key: "security", label: "Security", icon: ShieldCheck, tone: "blue" },
@@ -231,6 +232,7 @@ function SeverityDonutChart({ counts }: { counts: Record<string, number> }) {
 }
 
 import { useActiveProject } from "@/hooks/useActiveProject";
+import { EmptyProjectState } from "../component/EmptyProjectState";
 
 function DashboardView() {
   const trpc = useTRPC();
@@ -279,23 +281,8 @@ function DashboardView() {
     );
   if (!activeProject)
     return (
-      <div className="mx-auto max-w-2xl bg-red-300 px-6 py-20 text-center">
-        <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
-          <Globe2 />
-        </div>
-        <h1 className="mt-5 text-2xl font-semibold text-slate-950">
-          Create your first project
-        </h1>
-        <p className="mt-2 text-sm text-slate-500">
-          Add a website to unlock your security, SEO, performance, and
-          compliance overview.
-        </p>
-        <Link
-          href="/dashboard/settings/project"
-          className="mt-6 inline-flex h-9 items-center rounded-lg bg-slate-950 px-4 text-sm font-medium text-white hover:bg-slate-800"
-        >
-          Create project
-        </Link>
+      <div className="mx-auto h-full w-full flex items-center justify-center max-w-7xl px-6 py-10">
+        <EmptyProjectState />
       </div>
     );
   if (overviewQuery.isLoading || !overview)
@@ -312,6 +299,19 @@ function DashboardView() {
   const scanLimit = billingQuery.data?.usage_limit ?? null;
   const scansRemaining =
     scanLimit == null ? null : Math.max(0, scanLimit - scansUsed);
+  const latestCompletedScanId =
+    overview.latest_scan?.status === "completed"
+      ? overview.latest_scan.id
+      : null;
+  const handleExport = async () => {
+    if (!latestCompletedScanId) return;
+    try {
+      await downloadReport(latestCompletedScanId, "pdf");
+      toast.success("PDF report downloaded");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not export this report");
+    }
+  };
   const pillarScore = (key: string) => {
     if (key === "security") {
       if (overview.category_scores.security != null) return overview.category_scores.security;
@@ -354,14 +354,15 @@ function DashboardView() {
           <Button
           className={"md:p-5 p-3 text-sm md:text-md"}
             variant="outline"
-            disabled={!overview.latest_scan}
+            onClick={() => void handleExport()}
+            disabled={!latestCompletedScanId}
             title="Export report"
           >
             <Download className="mr-2 size-4" />
             Export
           </Button>
           <Button
-          className={"p-3 md:p-5 text-sm md:text-md "}
+          className={"p-3 md:p-5 text-sm md:text-md bg-background-btn"}
             onClick={() => runScan.mutate()}
             disabled={
               runScan.isPending || !overview.scan_available || scanRunning
