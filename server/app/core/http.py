@@ -41,7 +41,10 @@ async def fetch_with_ssl_fallback(
     """Probe a URL with verification, then retry only certificate failures."""
     try:
         return await verified.get(url), None
-    except (httpx.ConnectError, httpx.ConnectTimeout) as error:
-        if not is_certificate_verification_error(error):
-            raise
-        return await insecure.get(url), str(error)
+    except Exception as error:
+        if is_certificate_verification_error(error):
+            try:
+                return await insecure.get(url), str(error)
+            except Exception as insecure_err:
+                return None, str(insecure_err)
+        return None, str(error)

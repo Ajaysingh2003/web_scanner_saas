@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useSuspenseQuery, useQuery } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
 import { useActiveProject } from "@/hooks/useActiveProject";
 import PageHeader from "@/modules/dashboard/component/PageHeader";
@@ -15,9 +15,8 @@ export default function SecurityVulnerabilitiesView() {
   const trpc = useTRPC();
   const { project, projectId, isLoading } = useActiveProject();
 
-  const overview = useQuery({
+  const overview = useSuspenseQuery({
     ...trpc.project.overview.queryOptions({ project_id: projectId }),
-    enabled: !!project,
   });
 
   const latestScan = useQuery({
@@ -72,6 +71,5 @@ export default function SecurityVulnerabilitiesView() {
     </main>
   );
 }
-
 
 

@@ -10,6 +10,7 @@ from app.models import Project, Scan, ScanProgress, ScanStatus, ScannerRun, Scan
 from app.scanners.registry import get_scanners
 from app.services.billing import reserve_scan_slot
 from app.services.uptime import check_monitor
+from app.services.retention import enforce_data_retention
 from fastapi import HTTPException
 
 
@@ -62,9 +63,15 @@ async def check_due_uptime(ctx):
         await session.commit()
 
 
+async def cleanup_retained_data(ctx):
+    async with SessionFactory() as session:
+        return await enforce_data_retention(session)
+
+
 class WorkerSettings:
-    functions = [run_scan]
+    functions = [run_scan, cleanup_retained_data]
     max_jobs = 2
     cron_jobs = [cron(enqueue_due_scans, minute=set(range(60))),
-                 cron(check_due_uptime, minute=set(range(60)))]
+                 cron(check_due_uptime, minute=set(range(60))),
+                 cron(cleanup_retained_data, hour=3, minute=17)]
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

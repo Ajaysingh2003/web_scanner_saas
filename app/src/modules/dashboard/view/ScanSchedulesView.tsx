@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarClock, Check, Copy, Webhook, ArrowRight, BellRing, Clock3 } from "lucide-react";
 import { useState } from "react";
 import toast from "react-hot-toast";
@@ -20,18 +20,15 @@ export default function ScanSchedulesView() {
   const queryClient = useQueryClient();
   const { project, projectId } = useActiveProject();
 
-  const overview = useQuery({
+  const overview = useSuspenseQuery({
     ...trpc.project.overview.queryOptions({ project_id: projectId }),
-    enabled: Boolean(project),
   });
 
-  const schedule = useQuery({
+  const schedule = useSuspenseQuery({
     ...trpc.project.schedule.queryOptions({ project_id: projectId }),
-    enabled: Boolean(project),
   });
-  const webhooks = useQuery({
+  const webhooks = useSuspenseQuery({
     ...trpc.project.webhooks.queryOptions({ project_id: projectId }),
-    enabled: Boolean(project),
   });
   const update = useMutation({
     mutationFn: (enabled: boolean) =>

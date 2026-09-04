@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSuspenseQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Database, ShieldCheck, Trash2 } from "lucide-react";
 import { useState } from "react";
 import toast from "react-hot-toast";
@@ -19,9 +19,8 @@ export default function ConnectionsSupabaseView() {
   const queryClient = useQueryClient();
   const { project, projectId, isLoading: projectLoading } = useActiveProject();
 
-  const connections = useQuery({
+  const connections = useSuspenseQuery({
     ...trpc.project.providerConnections.queryOptions({ project_id: projectId }),
-    enabled: Boolean(project),
   });
 
   const supabaseConnection = (connections.data || []).find(

@@ -12,19 +12,12 @@ import {
 import toast from "react-hot-toast";
 
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { useTRPC, useTRPCClient } from "@/trpc/client";
 import { useSidebar } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 
 import { useActiveProject } from "@/hooks/useActiveProject";
+import { CreateProjectDialog } from "@/modules/project/component/CreateProjectDialog";
 
 export default function ProfileMenu() {
   const trpc = useTRPC();
@@ -36,8 +29,6 @@ export default function ProfileMenu() {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [websiteUrl, setWebsiteUrl] = useState("");
   const { data: user } = useQuery(trpc.user.profile.queryOptions());
   const { project: activeProject, projects, setActiveProject } = useActiveProject();
 
@@ -63,22 +54,6 @@ export default function ProfileMenu() {
       window.location.assign("/login");
     },
     onError: (error) => toast.error(error.message || "Could not sign out"),
-  });
-
-  const createProject = useMutation({
-    mutationFn: (input: {
-      name: string;
-      website_url: string;
-    }) => trpcClient.project.create.mutate(input),
-    onSuccess: (newProject) => {
-      toast.success("Project created");
-      setCreateOpen(false);
-      setName("");
-      setWebsiteUrl("");
-      setActiveProject(newProject.id);
-    },
-    onError: (error) =>
-      toast.error(error.message || "Could not create project"),
   });
 
   const selectProject = (selectedId: string) => {
@@ -121,7 +96,7 @@ export default function ProfileMenu() {
           <div
             className={cn(
               avatarSize,
-              "shrink-0 flex items-center justify-center rounded-md bg-blue-600 text-white font-bold",
+              "shrink-0 flex items-center justify-center rounded-md bg-yellow-400 text-white font-bold",
               textSize,
             )}
           >
@@ -217,7 +192,7 @@ export default function ProfileMenu() {
                   setIsOpen(false);
                   setCreateOpen(true);
                 }}
-                className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-xs font-medium text-black hover:bg-blue-50 transition-colors"
+                className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-xs font-medium text-black bg-background hover:bg-blue-50 transition-colors"
               >
                 <Plus className="size-3.5" />
                 Create project
@@ -243,51 +218,7 @@ export default function ProfileMenu() {
         )}
       </div>
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-
-
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create project</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <Input
-              placeholder="Project name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-            <Input
-              placeholder="Website URL"
-              type="url"
-              value={websiteUrl}
-              onChange={(event) => setWebsiteUrl(event.target.value)}
-            />
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setCreateOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              disabled={
-                createProject.isPending || !name.trim() || !websiteUrl.trim()
-              }
-              onClick={() =>
-                createProject.mutate({
-                  name,
-                  website_url: websiteUrl,
-                })
-              }
-            >
-              {createProject.isPending ? "Creating…" : "Create project"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <CreateProjectDialog open={createOpen} onOpenChange={setCreateOpen} />
     </>
   );
 }

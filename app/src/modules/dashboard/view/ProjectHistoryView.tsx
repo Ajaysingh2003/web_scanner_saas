@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useSuspenseQuery } from "@tanstack/react-query";
 import { Clock, Filter } from "lucide-react";
 import { useState } from "react";
 
@@ -18,9 +18,8 @@ export default function ProjectHistoryView() {
   const { project, projectId, isLoading: projectLoading } = useActiveProject();
   const [filter, setFilter] = useState<FilterType>("all");
 
-  const activity = useQuery({
+  const activity = useSuspenseQuery({
     ...trpc.project.activity.queryOptions({ project_id: projectId }),
-    enabled: Boolean(project),
   });
 
   const events = (activity.data || []).filter(

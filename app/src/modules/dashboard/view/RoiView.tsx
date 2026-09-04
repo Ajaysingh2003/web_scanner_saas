@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSuspenseQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   DollarSign,
   TrendingDown,
@@ -46,11 +46,8 @@ export default function RoiView() {
   const [lcpDelay, setLcpDelay] = useState<number>(1.8);
   const [securityRiskLevel, setSecurityRiskLevel] = useState<"low" | "medium" | "high">("medium");
 
-  const { data: overview, isLoading: overviewLoading } = useQuery(
-    trpc.project.overview.queryOptions(
-      { project_id: projectId || "00000000-0000-0000-0000-000000000000" },
-      { enabled: !!projectId },
-    ),
+  const { data: overview, isLoading: overviewLoading } = useSuspenseQuery(
+    trpc.project.overview.queryOptions({ project_id: projectId }),
   );
 
   const { data: latestScan } = useQuery(
@@ -60,11 +57,8 @@ export default function RoiView() {
     ),
   );
 
-  const { data: roiProfile, isLoading: roiLoading } = useQuery(
-    trpc.project.roi.queryOptions(
-      { project_id: projectId || "00000000-0000-0000-0000-000000000000" },
-      { enabled: !!projectId },
-    ),
+  const { data: roiProfile, isLoading: roiLoading } = useSuspenseQuery(
+    trpc.project.roi.queryOptions({ project_id: projectId }),
   );
 
   // Sync initial values from profile or scan metrics

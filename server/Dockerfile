@@ -1,9 +1,7 @@
-# syntax=docker/dockerfile:1
 FROM python:3.12-slim
 WORKDIR /app
 COPY requirements.txt .
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --retries 5 --timeout 120 -r requirements.txt
+RUN pip install --retries 5 --timeout 120 -r requirements.txt
 RUN playwright install --with-deps chromium
 COPY app app
 COPY alembic alembic

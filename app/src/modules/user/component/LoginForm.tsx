@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -20,7 +19,6 @@ const loginSchema = z.object({
 type LoginFormValues = z.infer<typeof loginSchema>;
 
 export default function LoginForm() {
-  const router = useRouter();
   const queryClient = useQueryClient();
   const trpc = useTRPC();
   const form = useForm<LoginFormValues>({
@@ -32,7 +30,8 @@ export default function LoginForm() {
       onSuccess: async () => {
         toast.success("Welcome back");
         await queryClient.clear();
-        window.location.assign("/dashboard");
+        const nextPath = new URLSearchParams(window.location.search).get("next");
+        window.location.assign(nextPath?.startsWith("/") && !nextPath.startsWith("//") ? nextPath : "/dashboard");
       },
       onError: (error) => toast.error(error.message),
     }),

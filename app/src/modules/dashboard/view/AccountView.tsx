@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSuspenseQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTRPC, useTRPCClient } from "@/trpc/client";
 import { User, Shield, LogOut, Save, Mail } from "lucide-react";
 import toast from "react-hot-toast";
@@ -18,7 +18,7 @@ export default function AccountView() {
 
   const [displayName, setDisplayName] = useState("");
 
-  const { data: profile, isLoading } = useQuery(trpc.user.profile.queryOptions());
+  const { data: profile, isLoading } = useSuspenseQuery(trpc.user.profile.queryOptions());
 
   useEffect(() => {
     if (profile) {

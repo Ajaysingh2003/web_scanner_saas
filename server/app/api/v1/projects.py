@@ -305,6 +305,10 @@ async def project_overview(project_id: uuid.UUID, request: Request,
         elif "security" not in category_scores and "vulnerability" in category_scores:
             category_scores = {**category_scores, "security": category_scores["vulnerability"]}
 
+        failed_scanners = int(scoring.get("failed_scanners") or 0)
+        coverage_score = float(scoring.get("coverage_score") or 100.0)
+        global_score = float(scoring.get("global_score")) if scoring.get("global_score") is not None else None
+
         if severity_counts[Severity.critical.value]:
             risk_level = "critical"
         elif severity_counts[Severity.high.value]:
@@ -325,6 +329,10 @@ async def project_overview(project_id: uuid.UUID, request: Request,
                 id=finding.id, category=finding.category, severity=finding.severity.value,
                 title=finding.title, description=finding.description,
             ))
+    else:
+        failed_scanners = 0
+        coverage_score = 100.0
+        global_score = None
     locked_findings = max(0, total_findings - len(visible_findings))
     limits = plan_limits(plan)
     usage_limit = limits["scans_per_month"]
@@ -351,6 +359,8 @@ async def project_overview(project_id: uuid.UUID, request: Request,
         findings=visible_findings, locked_findings=locked_findings,
         has_scan=latest is not None, scan_available=not scan_limit_reached,
         scan_limit_reached=scan_limit_reached, setup=setup,
+        failed_scanners=failed_scanners, coverage_score=coverage_score,
+        global_score=global_score,
     )
     return success_response(request, "Project overview retrieved successfully", data)
 

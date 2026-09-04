@@ -1,5 +1,6 @@
 import ScanSettingsView from "@/modules/dashboard/view/ScanSettingsView";
+import ProjectDataBoundary from "@/modules/dashboard/component/ProjectDataBoundary";
 
 export default function ScanSettingsPage() {
-  return <ScanSettingsView />;
+  return <ProjectDataBoundary><ScanSettingsView /></ProjectDataBoundary>;
 }

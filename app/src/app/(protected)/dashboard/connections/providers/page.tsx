@@ -1,5 +1,6 @@
 import ConnectionsProvidersView from "@/modules/dashboard/view/ConnectionsProvidersView";
+import ProjectDataBoundary from "@/modules/dashboard/component/ProjectDataBoundary";
 
 export default function ProvidersPage() {
-  return <ConnectionsProvidersView />;
+  return <ProjectDataBoundary><ConnectionsProvidersView /></ProjectDataBoundary>;
 }

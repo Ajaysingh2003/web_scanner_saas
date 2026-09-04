@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useSuspenseQuery, useQuery } from "@tanstack/react-query";
 import {
   Smartphone,
   Laptop,
@@ -154,9 +154,8 @@ export default function PerformanceView() {
   const { project, projectId, isLoading } = useActiveProject();
   const [device, setDevice] = useState<DeviceMode>("desktop");
 
-  const overview = useQuery({
+  const overview = useSuspenseQuery({
     ...trpc.project.overview.queryOptions({ project_id: projectId }),
-    enabled: !!project,
   });
 
   const latestScan = useQuery({
@@ -624,5 +623,4 @@ export default function PerformanceView() {
     </main>
   );
 }
-
 

@@ -89,7 +89,7 @@ export default function FAQSection() {
   const activeIndexString = activeIndex >= 0 ? faqs[activeIndex].index : "01";
 
   // Section Entrance Animation
-  const { contextSafe } = useGSAP(
+  useGSAP(
     () => {
       const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -143,6 +143,7 @@ export default function FAQSection() {
 
   return (
     <section
+      id="faq"
       ref={sectionRef}
       className="w-full py-20 md:py-28 bg-[#fafaf9] border-t border-b border-stone-200/80"
     >
@@ -178,7 +179,7 @@ export default function FAQSection() {
                 Still have a question?
               </span>
               <a
-                href="mailto:support@scanlyst.io"
+                href="mailto:support@scanlyst.dev"
                 className="inline-flex items-center gap-2 text-xs font-semibold text-slate-800 hover:text-rose-600 transition-colors group cursor-pointer"
               >
                 <MessageCircle className="size-3.5 text-stone-400 group-hover:text-rose-500 transition-colors" />
@@ -198,7 +199,7 @@ export default function FAQSection() {
             {/* shadcn Accordion Core */}
             <Accordion
               value={openItem ? [openItem] : []}
-              onValueChange={(val: any) => {
+              onValueChange={(val) => {
                 const nextVal = Array.isArray(val) ? val[0] || "" : typeof val === "string" ? val : "";
                 setOpenItem(nextVal);
               }}

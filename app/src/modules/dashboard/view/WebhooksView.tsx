@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSuspenseQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTRPC, useTRPCClient } from "@/trpc/client";
 import { useActiveProject } from "@/hooks/useActiveProject";
 import { Webhook, Trash2, CheckSquare, Square } from "lucide-react";
@@ -31,9 +31,8 @@ export default function WebhooksView() {
   const [secret, setSecret] = useState("");
   const [events, setEvents] = useState<string[]>([]);
 
-  const { data: webhooks, isLoading: isWebhooksLoading } = useQuery({
-    ...trpc.project.webhooks.queryOptions({ project_id: project?.id || "00000000-0000-0000-0000-000000000000" }),
-    enabled: !!project?.id,
+  const { data: webhooks, isLoading: isWebhooksLoading } = useSuspenseQuery({
+    ...trpc.project.webhooks.queryOptions({ project_id: project!.id }),
   });
 
   const createMutation = useMutation({

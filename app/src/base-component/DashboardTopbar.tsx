@@ -55,7 +55,7 @@ export function DashboardTopbar() {
   const isOverview = section === "dashboard";
 
   return (
-    <header className="sticky h-15 md:h-18 top-0 z-30 flex min-h-14 w-full items-center border-b border-slate-200/80 bg-white/45 px-3 backdrop-blur sm:px-5">
+    <header className="sticky h-15 md:h-18z top-0 z-30 flex min-h-14 w-full items-center border-b border-slate-200/80 bg-white/45 px-3 backdrop-blur sm:px-5">
       <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
         <SidebarToggle />
         <Separator orientation="vertical" className="hidden h-5 sm:block" />

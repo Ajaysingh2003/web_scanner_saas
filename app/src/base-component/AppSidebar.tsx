@@ -176,7 +176,6 @@ const projectNavigation: NavItem[] = [
       { label: "Scan settings", href: "/dashboard/settings/project/scans", icon: SlidersHorizontal },
     ],
   },
-  // { label: "Billing", href: "/dashboard/settings/billing", icon: CreditCard },
   // { label: "Account", href: "/dashboard/settings/account", icon: Settings },
 ];
 
@@ -240,7 +239,7 @@ function NavigationGroup({ label, items }: { label: string; items: NavItem[] }) 
                   onClick={item.children ? () => toggleExpand(item.href) : undefined}
                   className={cn(
                     "relative flex h-8.5 w-full items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-colors duration-150",
-                    "text-muted-foreground hover:bg-accentz hover:text-foreground [&:hover_svg]:text-foreground",
+                    "text-muted-foreground hover:bg-accentz hover:text-stone-700 [&:hover_svg]:text-foreground",
                     (active || hasActiveChild) &&
                       "bg-rose-50/70 font-semibold text-foreground"
                   )}
@@ -291,9 +290,9 @@ function NavigationGroup({ label, items }: { label: string; items: NavItem[] }) 
                             isActive={childActive}
                             className={cn(
                               "h-7 text-xs font-medium text-muted-foreground transition-colors rounded-sm px-2",
-                              "hover:bg-accent/50 hover:text-foreground [&:hover_svg]:opacity-100",
+                              "hover:bg-accent/2 hover:text-foreground [&:hover_svg]:opacity-100",
                               childActive &&
-                                "bg-primary/10 font-semibold text-primary hover:bg-primary/15 hover:text-primary"
+                                "bg-primary/10 font-semibold text-primary hover:bg-primary/10 hover:text-primary"
                             )}
                             render={<Link href={child.href} />}
                           >
@@ -517,7 +516,7 @@ function SidebarUserFooter() {
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              handleNavigate("/dashboard/settings/billing");
+              handleNavigate("/pricing");
             }}
             className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition-colors"
           >
@@ -597,7 +596,7 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon" className="border-r border-black/5 bg-black-100">
       {/* Sidebar Header */}
-      <SidebarHeader className="border-b border-black/5 p-3">
+      <SidebarHeader className="border-b border-black/5 p-2">
         <ProfileMenu />
       </SidebarHeader>
 

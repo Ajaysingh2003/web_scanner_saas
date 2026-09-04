@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useSuspenseQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
     Activity,
     AlertTriangle,
@@ -132,11 +132,10 @@ export default function ScansView() {
     const [statusFilter, setStatusFilter] = useState("all");
     const { project: activeProject, projectId, isLoading } = useActiveProject();
 
-    const historyQuery = useQuery({
+    const historyQuery = useSuspenseQuery({
         ...trpc.project.scanHistory.queryOptions({
             project_id: projectId,
         }),
-        enabled: Boolean(activeProject?.id),
         refetchInterval: 4000,
     });
 

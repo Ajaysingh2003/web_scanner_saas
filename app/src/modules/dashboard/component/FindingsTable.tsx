@@ -296,7 +296,7 @@ export default function FindingsTable({
             </p>
           </div>
           <Link
-            href="/dashboard/settings/billing"
+            href="/pricing"
             className="flex items-center gap-3 bg-slate-50/80 px-4 py-3.5 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors border-t border-slate-100"
           >
             <LockKeyhole className="size-4 text-slate-400" />
@@ -717,7 +717,7 @@ export default function FindingsTable({
         </table>
         {lockedCount && lockedCount > 0 ? (
           <Link
-            href="/dashboard/settings/billing"
+            href="/pricing"
             className="flex items-center gap-3 bg-slate-50/80 px-4 py-3.5 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors border-t border-slate-100"
           >
             <LockKeyhole className="size-4 text-slate-400" />
@@ -863,4 +863,3 @@ export default function FindingsTable({
     </div>
   );
 }
-
