@@ -110,139 +110,152 @@ async def run_scan(scan_id, session: AsyncSession) -> None:
             run.started_at = None
             run.finished_at = None
     await session.commit()
-    settings = get_settings()
-    limits = httpx.Limits(max_connections=settings.scanner_concurrency)
-    timeout = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
-    headers = {"User-Agent": settings.user_agent}
-    async with http_clients(timeout=timeout, limits=limits, headers=headers) as (verified, insecure):
-        _probe, ssl_error = await fetch_with_ssl_fallback(verified, insecure, scan.url)
-        scanner_http = insecure if ssl_error else verified
-        security_test_runtime: dict[str, object] = {}
-        semaphore = asyncio.Semaphore(settings.scanner_concurrency)
-        progress_lock = asyncio.Lock()
+    try:
+        settings = get_settings()
+        limits = httpx.Limits(max_connections=settings.scanner_concurrency)
+        timeout = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
+        headers = {"User-Agent": settings.user_agent}
+        async with http_clients(timeout=timeout, limits=limits, headers=headers) as (verified, insecure):
+            _probe, ssl_error = await fetch_with_ssl_fallback(verified, insecure, scan.url)
+            scanner_http = insecure if ssl_error else verified
+            security_test_runtime: dict[str, object] = {}
+            semaphore = asyncio.Semaphore(settings.scanner_concurrency)
+            progress_lock = asyncio.Lock()
 
-        async def mark_scanner(scanner_name: str, status: ScannerRunStatus,
-                               findings_count: int = 0, error: str | None = None) -> None:
-            async with progress_lock:
-                async with SessionFactory() as progress_session:
-                    current = await progress_session.get(ScanProgress, scan.id)
-                    run = await progress_session.get(ScannerRun, {
-                        "scan_id": scan.id, "scanner_name": scanner_name
-                    })
-                    now = datetime.now(timezone.utc)
-                    if run is not None:
-                        run.status = status
-                        run.findings_count = findings_count
-                        run.error = error
-                        if status == ScannerRunStatus.running:
-                            run.started_at = now
-                        else:
-                            run.finished_at = now
-                    if current is not None:
-                        if status in (ScannerRunStatus.completed, ScannerRunStatus.failed):
-                            current.completed_scanners += 1
-                            current.failed_scanners += status == ScannerRunStatus.failed
-                        current.current_scanner = scanner_name
-                    await progress_session.commit()
+            async def mark_scanner(scanner_name: str, status: ScannerRunStatus,
+                                   findings_count: int = 0, error: str | None = None) -> None:
+                async with progress_lock:
+                    async with SessionFactory() as progress_session:
+                        current = await progress_session.get(ScanProgress, scan.id)
+                        run = await progress_session.get(ScannerRun, {
+                            "scan_id": scan.id, "scanner_name": scanner_name
+                        })
+                        now = datetime.now(timezone.utc)
+                        if run is not None:
+                            run.status = status
+                            run.findings_count = findings_count
+                            run.error = error
+                            if status == ScannerRunStatus.running:
+                                run.started_at = now
+                            else:
+                                run.finished_at = now
+                        if current is not None:
+                            if status in (ScannerRunStatus.completed, ScannerRunStatus.failed):
+                                current.completed_scanners += 1
+                                current.failed_scanners += status == ScannerRunStatus.failed
+                            current.current_scanner = scanner_name
+                        await progress_session.commit()
 
-        async def execute(scanner):
-            async with semaphore:
-                await mark_scanner(scanner.name, ScannerRunStatus.running)
-                is_deep = (
-                    security_test_scanners is not None
-                    or scanner.name in {"sqli_security", "xss_active", "authentication", "lighthouse_performance", "extended_security"}
-                )
-                scanner_timeout = 180.0 if is_deep else max(60.0, settings.scanner_timeout_seconds)
-                try:
-                    findings = await asyncio.wait_for(
-                        scanner.scan(
-                            scan.url,
-                            ScanContext(
-                                scanner_http,
-                                ssl_error=ssl_error,
-                                supabase=supabase_context,
-                                security_test=(scan.metadata_ or {}).get("security_test"),
-                                security_test_runtime=security_test_runtime,
-                                session_factory=SessionFactory,
+            async def execute(scanner):
+                async with semaphore:
+                    await mark_scanner(scanner.name, ScannerRunStatus.running)
+                    is_deep = (
+                        security_test_scanners is not None
+                        or scanner.name in {"sqli_security", "xss_active", "authentication", "lighthouse_performance", "extended_security"}
+                    )
+                    scanner_timeout = 180.0 if is_deep else max(60.0, settings.scanner_timeout_seconds)
+                    try:
+                        findings = await asyncio.wait_for(
+                            scanner.scan(
+                                scan.url,
+                                ScanContext(
+                                    scanner_http,
+                                    ssl_error=ssl_error,
+                                    supabase=supabase_context,
+                                    security_test=(scan.metadata_ or {}).get("security_test"),
+                                    security_test_runtime=security_test_runtime,
+                                    session_factory=SessionFactory,
+                                ),
                             ),
-                        ),
-                        timeout=scanner_timeout,
-                    )
-                    await mark_scanner(scanner.name, ScannerRunStatus.completed, len(findings))
-                    return scanner, findings, False, None
-                except Exception as exc:
-                    error = f"{type(exc).__name__}: {exc}"[:2000]
-                    await mark_scanner(scanner.name, ScannerRunStatus.failed, error=error)
-                    return scanner, [], True, error
-        results = await asyncio.gather(*(execute(scanner) for scanner in scanners))
-    for scanner, findings, _failed, _error in results:
-        findings = _deduplicate_findings(findings)
-        session.add_all(Finding(scan_id=scan.id, scanner_name=scanner.name, category=scanner.category,
-            severity=item.severity, title=item.title, description=item.description, evidence=item.evidence,
-            remediation=item.remediation, confidence=item.confidence, raw_data=item.raw_data) for item in findings)
-    await session.flush()
-    stored = list((await session.scalars(select(Finding).where(Finding.scan_id == scan.id))).all())
-    failed_scanners = sum(1 for _, _, failed, _ in results if failed)
-    breakdown = score_breakdown(stored, {scanner.category for scanner in scanners}, failed_scanners)
-    scan.overall_score = breakdown["overall_score"]
-    scan.metadata_ = {
-        **(scan.metadata_ or {}),
-        "scoring": breakdown,
-        **({"security_test_runtime": security_test_runtime} if security_test_runtime else {}),
-        "scanner_failures": [
-            {"scanner": scanner.name, "error": error}
-            for scanner, _findings, failed, error in results if failed
-        ],
-    }
-    scan.status = ScanStatus.failed if all(failed for _, _, failed, _ in results) else ScanStatus.completed
-    scan.finished_at = datetime.now(timezone.utc)
-    benchmark_id = (scan.metadata_ or {}).get("benchmark_id")
-    if benchmark_id:
-        benchmark = await session.get(CompetitorBenchmark, benchmark_id)
-        if benchmark:
-            benchmark.score = scan.overall_score
-            benchmark.status = "completed" if scan.status == ScanStatus.completed else "failed"
-            benchmark.last_scanned_at = scan.finished_at
-    if scan.status == ScanStatus.completed and scan.project_id:
-        previous = await session.scalar(select(Scan).where(
-            Scan.project_id == scan.project_id, Scan.url == scan.url,
-            Scan.status == ScanStatus.completed, Scan.id != scan.id,
-            Scan.finished_at < scan.finished_at,
-        ).options(selectinload(Scan.findings)).order_by(Scan.finished_at.desc()).limit(1))
-        if previous:
-            comparison = compare_finding_lists(stored, previous.findings, scan.overall_score,
-                                                previous.overall_score, previous.id)
-            scan.metadata_ = {
-                **scan.metadata_,
-                "comparison": comparison,
-            }
-            if comparison["regression_detected"]:
-                monitor = await session.scalar(select(UptimeMonitor).where(
-                    UptimeMonitor.project_id == scan.project_id, UptimeMonitor.enabled,
-                    UptimeMonitor.alert_webhook_url.is_not(None),
-                    UptimeMonitor.alert_webhook_secret_encrypted.is_not(None),
-                ))
-                if monitor:
-                    await send_webhook(
-                        monitor.alert_webhook_url, decrypt_secret(monitor.alert_webhook_secret_encrypted),
-                        "scan.regression", str(scan.id), {
-                            "project_id": str(scan.project_id), "score": scan.overall_score,
-                            "previous_scan_id": str(previous.id), "comparison": comparison,
-                        },
-                    )
-    if scan.project_id:
-        event = "scan.completed" if scan.status == ScanStatus.completed else "scan.failed"
-        webhooks = list((await session.scalars(select(ProjectWebhook).where(
-            ProjectWebhook.project_id == scan.project_id, ProjectWebhook.enabled
-        ))).all())
-        for webhook in webhooks:
-            if event in (webhook.events or []):
-                try:
-                    await send_webhook(webhook.url, decrypt_secret(webhook.secret_encrypted), event, str(scan.id), {
-                        "project_id": str(scan.project_id), "scan_id": str(scan.id),
-                        "status": scan.status.value, "score": scan.overall_score,
-                    })
-                except Exception:
-                    # Delivery failures must never fail or roll back a completed scan.
-                    pass
-    await session.commit()
+                            timeout=scanner_timeout,
+                        )
+                        await mark_scanner(scanner.name, ScannerRunStatus.completed, len(findings))
+                        return scanner, findings, False, None
+                    except Exception as exc:
+                        error = f"{type(exc).__name__}: {exc}"[:2000]
+                        await mark_scanner(scanner.name, ScannerRunStatus.failed, error=error)
+                        return scanner, [], True, error
+            results = await asyncio.gather(*(execute(scanner) for scanner in scanners))
+        for scanner, findings, _failed, _error in results:
+            findings = _deduplicate_findings(findings)
+            session.add_all(Finding(scan_id=scan.id, scanner_name=scanner.name, category=scanner.category,
+                severity=item.severity, title=item.title, description=item.description, evidence=item.evidence,
+                remediation=item.remediation, confidence=item.confidence, raw_data=item.raw_data) for item in findings)
+        await session.flush()
+        stored = list((await session.scalars(select(Finding).where(Finding.scan_id == scan.id))).all())
+        failed_scanners = sum(1 for _, _, failed, _ in results if failed)
+        breakdown = score_breakdown(stored, {scanner.category for scanner in scanners}, failed_scanners)
+        scan.overall_score = breakdown["overall_score"]
+        scan.metadata_ = {
+            **(scan.metadata_ or {}),
+            "scoring": breakdown,
+            **({"security_test_runtime": security_test_runtime} if security_test_runtime else {}),
+            "scanner_failures": [
+                {"scanner": scanner.name, "error": error}
+                for scanner, _findings, failed, error in results if failed
+            ],
+        }
+        scan.status = ScanStatus.failed if all(failed for _, _, failed, _ in results) else ScanStatus.completed
+        scan.finished_at = datetime.now(timezone.utc)
+        benchmark_id = (scan.metadata_ or {}).get("benchmark_id")
+        if benchmark_id:
+            benchmark = await session.get(CompetitorBenchmark, benchmark_id)
+            if benchmark:
+                benchmark.score = scan.overall_score
+                benchmark.status = "completed" if scan.status == ScanStatus.completed else "failed"
+                benchmark.last_scanned_at = scan.finished_at
+        if scan.status == ScanStatus.completed and scan.project_id:
+            previous = await session.scalar(select(Scan).where(
+                Scan.project_id == scan.project_id, Scan.url == scan.url,
+                Scan.status == ScanStatus.completed, Scan.id != scan.id,
+                Scan.finished_at < scan.finished_at,
+            ).options(selectinload(Scan.findings)).order_by(Scan.finished_at.desc()).limit(1))
+            if previous:
+                comparison = compare_finding_lists(stored, previous.findings, scan.overall_score,
+                                                    previous.overall_score, previous.id)
+                scan.metadata_ = {
+                    **scan.metadata_,
+                    "comparison": comparison,
+                }
+                if comparison["regression_detected"]:
+                    monitor = await session.scalar(select(UptimeMonitor).where(
+                        UptimeMonitor.project_id == scan.project_id, UptimeMonitor.enabled,
+                        UptimeMonitor.alert_webhook_url.is_not(None),
+                        UptimeMonitor.alert_webhook_secret_encrypted.is_not(None),
+                    ))
+                    if monitor:
+                        await send_webhook(
+                            monitor.alert_webhook_url, decrypt_secret(monitor.alert_webhook_secret_encrypted),
+                            "scan.regression", str(scan.id), {
+                                "project_id": str(scan.project_id), "score": scan.overall_score,
+                                "previous_scan_id": str(previous.id), "comparison": comparison,
+                            },
+                        )
+        if scan.project_id:
+            event = "scan.completed" if scan.status == ScanStatus.completed else "scan.failed"
+            webhooks = list((await session.scalars(select(ProjectWebhook).where(
+                ProjectWebhook.project_id == scan.project_id, ProjectWebhook.enabled
+            ))).all())
+            for webhook in webhooks:
+                if event in (webhook.events or []):
+                    try:
+                        await send_webhook(webhook.url, decrypt_secret(webhook.secret_encrypted), event, str(scan.id), {
+                            "project_id": str(scan.project_id), "scan_id": str(scan.id),
+                            "status": scan.status.value, "score": scan.overall_score,
+                        })
+                    except Exception:
+                        # Delivery failures must never fail or roll back a completed scan.
+                        pass
+        await session.commit()
+    except Exception as exc:
+        scan.status = ScanStatus.failed
+        scan.finished_at = datetime.now(timezone.utc)
+        scan.metadata_ = {
+            **(scan.metadata_ or {}),
+            "fatal_error": f"{type(exc).__name__}: {exc}"[:2000],
+        }
+        progress = await session.get(ScanProgress, scan.id)
+        if progress:
+            progress.current_scanner = f"Failed: {type(exc).__name__}"
+        await session.commit()
+        raise

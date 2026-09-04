@@ -1,6 +1,10 @@
 import InteractiveAuthScreen from '@/modules/micro-interactions/Authanimation'
-import Authanimation from '@/modules/micro-interactions/Authanimation'
 import React from 'react'
+import type { Metadata } from 'next'
+
+export const metadata: Metadata = {
+  robots: { index: false, follow: false, noarchive: true, nosnippet: true },
+};
 
 function layout({children}: {children: React.ReactNode}) {
   return (

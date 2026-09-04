@@ -49,6 +49,9 @@ export type ProjectOverview = {
     website_url_configured: boolean;
     schedule_enabled: boolean;
   };
+  failed_scanners?: number;
+  coverage_score?: number;
+  global_score?: number | null;
 };
 
 export type CompetitorBenchmark = {

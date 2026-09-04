@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useSuspenseQuery, useQuery } from "@tanstack/react-query";
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -23,11 +23,10 @@ export default function ScanCompareView() {
   const trpc = useTRPC();
   const params = useSearchParams();
   const { project, projectId } = useActiveProject();
-  const history = useQuery({
+  const history = useSuspenseQuery({
     ...trpc.project.scanHistory.queryOptions({
       project_id: projectId,
     }),
-    enabled: Boolean(project?.id),
   });
 
   const completedScans = (history.data || []).filter(

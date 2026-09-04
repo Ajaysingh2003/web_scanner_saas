@@ -50,7 +50,7 @@ export default function UpgradeGate({
             <p className="mt-0.5 text-xs text-slate-600 max-w-xl">{defaultDesc}</p>
           </div>
         </div>
-        <Link href="/dashboard/settings/billing" className="shrink-0">
+        <Link href="/pricing" className="shrink-0">
           <Button size="sm" className="bg-[#f43f5e] hover:bg-[#e11d48] text-white text-xs h-8 px-3.5 gap-1.5 font-medium shadow-xs">
             <Sparkles className="size-3.5" /> Upgrade Plan
           </Button>
@@ -91,13 +91,13 @@ export default function UpgradeGate({
       )}
 
       <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-        <Link href="/dashboard/settings/billing">
+        <Link href="/pricing">
           <Button className="bg-[#f43f5e] hover:bg-[#e11d48] text-white text-xs px-5 h-9 font-medium gap-1.5 shadow-sm">
             <Sparkles className="size-3.5" />
             Upgrade to {planName}
           </Button>
         </Link>
-        <Link href="/dashboard/settings/billing">
+        <Link href="/pricing">
           <Button variant="outline" className="text-xs h-9 px-4 text-slate-600 border-slate-200">
             Compare all plans <ArrowRight className="size-3 ml-1" />
           </Button>
@@ -106,4 +106,3 @@ export default function UpgradeGate({
     </div>
   );
 }
-

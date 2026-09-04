@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, field_validator
 
 
 class ProjectSettings(BaseModel):
@@ -17,6 +17,15 @@ class ProjectCreate(BaseModel):
     settings: ProjectSettings = Field(default_factory=ProjectSettings)
     schedule_enabled: bool = False
     schedule_interval_minutes: int = Field(default=1440, ge=60, le=43200)
+
+    @field_validator("website_url", mode="before")
+    @classmethod
+    def normalize_website_url(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            v = v.strip()
+            if v and not v.startswith(("http://", "https://")):
+                return f"https://{v}"
+        return v
 
 
 class ProjectUpdate(BaseModel):

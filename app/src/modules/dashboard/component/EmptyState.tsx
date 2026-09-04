@@ -9,6 +9,7 @@ interface EmptyStateProps {
   description: string;
   actionLabel?: string;
   actionHref?: string;
+  onAction?: () => void;
 }
 
 export default function EmptyState({
@@ -17,6 +18,7 @@ export default function EmptyState({
   description,
   actionLabel,
   actionHref,
+  onAction,
 }: EmptyStateProps) {
   return (
     <div className="flex h-full w-full items-center justify-center p-4 sm:p-6">
@@ -43,15 +45,26 @@ export default function EmptyState({
         </div>
 
         {/* Action Button */}
-        {actionLabel && actionHref && (
+        {actionLabel && (
           <div className="relative mt-7 flex items-center justify-center">
-            <Link
-              href={actionHref}
-              className="group inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-gradient-to-r bg-background-btn px-5 text-xs font-semibold text-white shadow-xs shadow-rose-500/20 transition-all duration-200 hover:opacity-95 hover:shadow-md hover:shadow-rose-500/25 active:scale-[0.98] sm:text-sm"
-            >
-              <span>{actionLabel}</span>
-              <ArrowRight className="size-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
-            </Link>
+            {onAction ? (
+              <button
+                type="button"
+                onClick={onAction}
+                className="group inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-gradient-to-r bg-background-btn px-5 text-xs font-semibold text-white shadow-xs shadow-rose-500/20 transition-all duration-200 hover:opacity-95 hover:shadow-md hover:shadow-rose-500/25 active:scale-[0.98] sm:text-sm cursor-pointer"
+              >
+                <span>{actionLabel}</span>
+                <ArrowRight className="size-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
+              </button>
+            ) : actionHref ? (
+              <Link
+                href={actionHref}
+                className="group inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-gradient-to-r bg-background-btn px-5 text-xs font-semibold text-white shadow-xs shadow-rose-500/20 transition-all duration-200 hover:opacity-95 hover:shadow-md hover:shadow-rose-500/25 active:scale-[0.98] sm:text-sm"
+              >
+                <span>{actionLabel}</span>
+                <ArrowRight className="size-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
+              </Link>
+            ) : null}
           </div>
         )}
       </section>

@@ -185,7 +185,9 @@ async def login(payload: LoginRequest, session: AsyncSession = Depends(get_sessi
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh(payload: RefreshRequest, session: AsyncSession = Depends(get_session)):
     record = await session.scalar(select(RefreshSession).where(
-        RefreshSession.token_hash == token_hash(payload.refresh_token), RefreshSession.revoked_at.is_(None)))
+        RefreshSession.token_hash == token_hash(payload.refresh_token),
+        RefreshSession.revoked_at.is_(None),
+    ).with_for_update())
     if not record or record.expires_at <= datetime.now(timezone.utc):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh token is invalid or expired")
     user = await session.get(User, record.user_id)

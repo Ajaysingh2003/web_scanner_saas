@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSuspenseQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { BarChart3, ExternalLink, Clock, CheckCircle2, XCircle } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -33,14 +33,12 @@ export default function MonitoringOverviewView() {
   const queryClient = useQueryClient();
   const { project, projectId, isLoading: projectLoading } = useActiveProject();
 
-  const overview = useQuery({
+  const overview = useSuspenseQuery({
     ...trpc.project.overview.queryOptions({ project_id: projectId }),
-    enabled: Boolean(project),
   });
 
-  const schedule = useQuery({
+  const schedule = useSuspenseQuery({
     ...trpc.project.schedule.queryOptions({ project_id: projectId }),
-    enabled: Boolean(project),
   });
 
   const toggleSchedule = useMutation({
@@ -192,5 +190,4 @@ export default function MonitoringOverviewView() {
     </section>
   );
 }
-
 

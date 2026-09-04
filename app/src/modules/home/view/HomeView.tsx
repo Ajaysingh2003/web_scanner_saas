@@ -4,13 +4,12 @@ import TopHeader from '../component/TopHeader'
 import CtaSection from '../component/CtaSection'
 import IntroVideo from '../component/IntroVideo'
 import FeatureSection from '../component/Feature'
-import InteractiveDemo from '../component/InteractiveDemo'
 import HowItWorks from '@/base-component/HowItWorks'
 import TrustCredibility from '../component/TrustCredibility'
 import IntegrationsSection from '../component/Intigration'
 import PricingSection from '../component/PricingSection'
 import FAQSection from '../component/FAQSection'
-import { AnimatedFooter } from '@/components/ui/animated-footer'
+import ProductScreenshots from '../component/ProductScreenshots'
 
 function HomeView() {
   return (
@@ -18,13 +17,13 @@ function HomeView() {
       <TopHeader/>
       <CtaSection/>
       <IntroVideo/>
+      {/* <ProductScreenshots/> */}
       <FeatureSection/>
       <HowItWorks/>
       <TrustCredibility/>
       <IntegrationsSection/>
       <PricingSection/>
       <FAQSection/>
-      <AnimatedFooter/>
     </div>
   )
 }

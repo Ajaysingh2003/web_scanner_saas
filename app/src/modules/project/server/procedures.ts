@@ -41,9 +41,25 @@ const projectError = (error: unknown, fallback: string): never => {
   throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: fallback });
 };
 
+const websiteUrlSchema = z
+  .string()
+  .trim()
+  .min(1, "Website URL is required")
+  .transform((val) => {
+    if (!/^https?:\/\//i.test(val)) {
+      return `https://${val}`;
+    }
+    return val;
+  })
+  .pipe(
+    z.string().url({
+      message: "Please enter a valid website domain or URL (e.g. example.com or https://example.com)",
+    })
+  );
+
 const projectInput = z.object({
-  name: z.string().trim().min(1).max(120),
-  website_url: z.string().url(),
+  name: z.string().trim().min(1, "Project name is required").max(120),
+  website_url: websiteUrlSchema,
 });
 
 export const projectRouter = createTRPCRouter({

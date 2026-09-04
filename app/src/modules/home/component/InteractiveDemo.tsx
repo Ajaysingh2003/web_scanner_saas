@@ -407,7 +407,7 @@ export default function InteractiveDemo() {
               <span className="size-2.5 rounded-full bg-stone-300" />
               <span className="size-2.5 rounded-full bg-stone-300" />
               <span className="size-2.5 rounded-full bg-stone-300" />
-              <span className="ml-2 font-mono text-[11px] text-stone-400">app.scanlyst.io/dashboard</span>
+              <span className="ml-2 font-mono text-[11px] text-stone-400">app.scanlyst.dev/dashboard</span>
             </div>
             <div className="flex items-center gap-2 font-mono text-[11px] text-stone-400">
               <span className="size-1.5 rounded-full bg-emerald-500" />
@@ -425,7 +425,7 @@ export default function InteractiveDemo() {
                   <div className="size-6 rounded-md bg-slate-950 flex items-center justify-center text-white">
                     <Shield className="size-3.5" />
                   </div>
-                  <span className="font-heading font-bold text-sm text-slate-900 tracking-tight">ScanLyst</span>
+                  <span className="font-heading font-bold text-sm text-slate-900 tracking-tight">Scanlyst</span>
                 </div>
 
                 {/* Nav Section: Overview */}

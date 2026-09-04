@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useSuspenseQuery, useMutation } from "@tanstack/react-query";
 import { useTRPC, useTRPCClient } from "@/trpc/client";
 import { useActiveProject } from "@/hooks/useActiveProject";
 import { CreditCard, Check, AlertCircle, ExternalLink } from "lucide-react";
@@ -17,12 +17,12 @@ export default function BillingView() {
   const trpc = useTRPC();
   const client = useTRPCClient();
 
-  const { data: account, isLoading: isAccountLoading } = useQuery(
-    trpc.billing.getAccount.queryOptions(undefined, { enabled: !!project?.id })
+  const { data: account, isLoading: isAccountLoading } = useSuspenseQuery(
+    trpc.billing.getAccount.queryOptions()
   );
 
-  const { data: plans, isLoading: isPlansLoading } = useQuery(
-    trpc.billing.getPlans.queryOptions(undefined, { enabled: !!project?.id })
+  const { data: plans, isLoading: isPlansLoading } = useSuspenseQuery(
+    trpc.billing.getPlans.queryOptions()
   );
 
   const checkoutMutation = useMutation({

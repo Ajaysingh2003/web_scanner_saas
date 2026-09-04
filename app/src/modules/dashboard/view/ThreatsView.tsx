@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useSuspenseQuery } from "@tanstack/react-query";
 import { Radio, AlertTriangle, ShieldAlert } from "lucide-react";
 
 import { useTRPC } from "@/trpc/client";
@@ -15,14 +15,12 @@ export default function ThreatsView() {
   const trpc = useTRPC();
   const { project, projectId, isLoading: projectLoading } = useActiveProject();
 
-  const overview = useQuery({
+  const overview = useSuspenseQuery({
     ...trpc.project.overview.queryOptions({ project_id: projectId }),
-    enabled: Boolean(project),
   });
 
-  const activity = useQuery({
+  const activity = useSuspenseQuery({
     ...trpc.project.activity.queryOptions({ project_id: projectId }),
-    enabled: Boolean(project),
   });
 
   const threats = (activity.data || []).filter(
@@ -127,5 +125,4 @@ export default function ThreatsView() {
     </section>
   );
 }
-
 

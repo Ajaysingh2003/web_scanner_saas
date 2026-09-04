@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSuspenseQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Boxes, Database, KeyRound, Trash2, ExternalLink } from "lucide-react";
 import { useState } from "react";
 import toast from "react-hot-toast";
@@ -22,9 +22,8 @@ export default function ConnectionsOverviewView() {
   const queryClient = useQueryClient();
   const { project, projectId, isLoading: projectLoading } = useActiveProject();
 
-  const connections = useQuery({
+  const connections = useSuspenseQuery({
     ...trpc.project.providerConnections.queryOptions({ project_id: projectId }),
-    enabled: Boolean(project),
   });
 
   const [provider, setProvider] = useState<(typeof providerNames)[number]>("github");

@@ -48,3 +48,6 @@ class ProjectOverview(BaseModel):
     scan_available: bool
     scan_limit_reached: bool = False
     setup: dict[str, Any]
+    failed_scanners: int = 0
+    coverage_score: float = 100.0
+    global_score: float | None = None

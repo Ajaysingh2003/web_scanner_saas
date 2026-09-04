@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSuspenseQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTRPC, useTRPCClient } from "@/trpc/client";
 import { useActiveProject } from "@/hooks/useActiveProject";
 import { Clock, Save, Calendar, CheckCircle2, ShieldCheck } from "lucide-react";
@@ -38,11 +38,10 @@ export default function ScanSettingsView() {
   const [enabled, setEnabled] = useState(false);
   const [interval, setIntervalVal] = useState("1440");
 
-  const { data: schedule, isLoading: isScheduleLoading } = useQuery({
+  const { data: schedule, isLoading: isScheduleLoading } = useSuspenseQuery({
     ...trpc.project.schedule.queryOptions({
-      project_id: project?.id || "00000000-0000-0000-0000-000000000000",
+      project_id: project!.id,
     }),
-    enabled: !!project?.id,
   });
 
   useEffect(() => {

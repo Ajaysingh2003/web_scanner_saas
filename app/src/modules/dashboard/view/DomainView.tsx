@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useSuspenseQuery, useQuery } from "@tanstack/react-query";
 import {
   Globe,
   MailCheck,
@@ -29,9 +29,8 @@ export default function DomainView() {
   const trpc = useTRPC();
   const { project, projectId, isLoading } = useActiveProject();
 
-  const overview = useQuery({
+  const overview = useSuspenseQuery({
     ...trpc.project.overview.queryOptions({ project_id: projectId }),
-    enabled: !!project,
   });
 
   const latestScan = useQuery({
@@ -221,5 +220,4 @@ export default function DomainView() {
     </main>
   );
 }
-
 

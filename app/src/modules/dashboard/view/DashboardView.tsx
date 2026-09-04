@@ -2,7 +2,11 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useSuspenseQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   ArrowUpRight,
   Bell,
@@ -23,6 +27,8 @@ import {
   SearchCheck,
   TriangleAlert,
   Zap,
+  Activity,
+  Clock,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import {
@@ -119,8 +125,8 @@ function ScoreTrendChart({ scans }: { scans: any[] }) {
     .reverse()
     .map((scan) => ({
       date: new Date(scan.finished_at).toLocaleDateString(undefined, {
-        month: 'short',
-        day: 'numeric',
+        month: "short",
+        day: "numeric",
       }),
       score: Math.round(scan.score),
     }))
@@ -136,7 +142,10 @@ function ScoreTrendChart({ scans }: { scans: any[] }) {
 
   return (
     <ResponsiveContainer width="100%" height={160}>
-      <LineChart data={data} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+      <LineChart
+        data={data}
+        margin={{ top: 5, right: 10, left: -20, bottom: 0 }}
+      >
         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
         <XAxis
           dataKey="date"
@@ -152,10 +161,10 @@ function ScoreTrendChart({ scans }: { scans: any[] }) {
         />
         <Tooltip
           contentStyle={{
-            borderRadius: '8px',
-            border: '1px solid #e2e8f0',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
-            fontSize: '12px',
+            borderRadius: "8px",
+            border: "1px solid #e2e8f0",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
+            fontSize: "12px",
           }}
         />
         <Line
@@ -207,10 +216,10 @@ function SeverityDonutChart({ counts }: { counts: Record<string, number> }) {
           </Pie>
           <Tooltip
             contentStyle={{
-              borderRadius: '8px',
-              border: '1px solid #e2e8f0',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
-              fontSize: '12px',
+              borderRadius: "8px",
+              border: "1px solid #e2e8f0",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
+              fontSize: "12px",
             }}
           />
         </PieChart>
@@ -240,25 +249,25 @@ function DashboardView() {
   const queryClient = useQueryClient();
   const { project: activeProject, projectId, isLoading } = useActiveProject();
 
-  const overviewQuery = useQuery({
+  const overviewQuery = useSuspenseQuery({
     ...trpc.project.overview.queryOptions({
       project_id: projectId,
     }),
-    enabled: Boolean(activeProject?.id),
     refetchInterval: (query) =>
       query.state.data?.latest_scan?.status === "queued" ||
       query.state.data?.latest_scan?.status === "running"
         ? 3000
         : false,
   });
-  const recentScansQuery = useQuery({
+  const recentScansQuery = useSuspenseQuery({
     ...trpc.project.scanHistory.queryOptions({
       project_id: projectId,
     }),
-    enabled: Boolean(activeProject?.id),
     refetchInterval: 5000,
   });
-  const billingQuery = useQuery(trpc.project.billingAccount.queryOptions());
+  const billingQuery = useSuspenseQuery(
+    trpc.project.billingAccount.queryOptions(),
+  );
   const runScan = useMutation({
     mutationFn: () =>
       trpcClient.project.runScan.mutate({
@@ -309,12 +318,15 @@ function DashboardView() {
       await downloadReport(latestCompletedScanId, "pdf");
       toast.success("PDF report downloaded");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not export this report");
+      toast.error(
+        error instanceof Error ? error.message : "Could not export this report",
+      );
     }
   };
   const pillarScore = (key: string) => {
     if (key === "security") {
-      if (overview.category_scores.security != null) return overview.category_scores.security;
+      if (overview.category_scores.security != null)
+        return overview.category_scores.security;
       const v = overview.category_scores.vulnerability;
       const c = overview.category_scores.configuration;
       if (v != null && c != null) return Math.round((v + c) / 2);
@@ -325,11 +337,12 @@ function DashboardView() {
     return (
       overview.category_scores[key] ??
       (key === "aeo" ? overview.category_scores["seo-aeo"] : undefined) ??
-      (key === "domain" ? overview.category_scores.infrastructure : undefined) ??
+      (key === "domain"
+        ? overview.category_scores.infrastructure
+        : undefined) ??
       null
     );
   };
-
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
@@ -348,11 +361,16 @@ function DashboardView() {
           </p>
         </div>
         <div className="flex items-center gap-2 p-5 py-3">
-          <Button className={"md:p-5 p-3"} variant="outline" size="icon" title="Notifications">
+          <Button
+            className={"md:p-5 p-3"}
+            variant="outline"
+            size="icon"
+            title="Notifications"
+          >
             <Bell className="size-4" />
           </Button>
           <Button
-          className={"md:p-5 p-3 text-sm md:text-md"}
+            className={"md:p-5 p-3 text-sm md:text-md"}
             variant="outline"
             onClick={() => void handleExport()}
             disabled={!latestCompletedScanId}
@@ -362,7 +380,7 @@ function DashboardView() {
             Export
           </Button>
           <Button
-          className={"p-3 md:p-5 text-sm md:text-md bg-background-btn"}
+            className={"p-3 md:p-5 text-sm md:text-md bg-background-btn"}
             onClick={() => runScan.mutate()}
             disabled={
               runScan.isPending || !overview.scan_available || scanRunning
@@ -408,19 +426,46 @@ function DashboardView() {
               </p>
             )}
 
+            {Boolean(
+              overview.failed_scanners && overview.failed_scanners > 0,
+            ) && (
+              <div className="mt-3.5 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50/80 p-3.5 text-amber-900 shadow-2xs">
+                <TriangleAlert className="mt-0.5 size-4.5 shrink-0 text-amber-600" />
+                <div className="min-w-0 flex-1 text-xs">
+                  <p className="font-semibold text-amber-950">
+                    ⚠️ Incomplete Audit: {overview.failed_scanners} scanner
+                    {overview.failed_scanners === 1 ? "" : "s"} could not
+                    connect to this target
+                  </p>
+                  <p className="mt-1 text-amber-800 leading-relaxed font-content">
+                    {overview.global_score != null && (
+                      <span>
+                        Findings-only score is{" "}
+                        <strong>{Math.round(overview.global_score)}/100</strong>
+                        , but overall score is capped at{" "}
+                        <strong>{overview.score}/100</strong> due to low audit
+                        coverage.{" "}
+                      </span>
+                    )}
+                    The target website may have timed out, blocked automated
+                    scanners, or had DNS restrictions.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
-          <div className="rounded-2xl bg-slate-50 px-5 py-4 text-center">
+          {/* <div className="rounded-2xl bg-slate-50 px-5 py-4 text-center">
             <p className="text-xs text-slate-500">Plan</p>
             <p className="mt-1 text-lg font-semibold capitalize text-slate-950">
               {overview.plan}
             </p>
             <Link
-              href="/dashboard/settings/billing"
+              href="/pricing"
               className="mt-1 inline-flex text-xs font-medium text-blue-600 hover:underline"
             >
               Manage plan <ArrowUpRight className="ml-1 size-3" />
             </Link>
-          </div>
+          </div> */}
         </div>
         <div className="mt-5 border-t border-slate-100 pt-4">
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
@@ -460,7 +505,7 @@ function DashboardView() {
                 the next billing cycle or an upgrade.
               </p>
               <Link
-                href="/dashboard/settings/billing"
+                href="/pricing"
                 className="text-xs font-semibold text-[#f43f5e]"
               >
                 Upgrade plan
@@ -486,9 +531,7 @@ function DashboardView() {
           </p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-xs font-medium text-slate-500">
-            High & critical
-          </p>
+          <p className="text-xs font-medium text-slate-500">High & critical</p>
           <p className="mt-2 text-2xl font-semibold text-slate-950">
             {(overview.severity_counts.critical || 0) +
               (overview.severity_counts.high || 0)}
@@ -520,11 +563,7 @@ function DashboardView() {
             Environments configured
           </p>
           <p className="mt-2 text-2xl font-semibold text-slate-950">
-            {
-              [
-                overview.setup.website_url_configured,
-              ].filter(Boolean).length
-            }
+            {[overview.setup.website_url_configured].filter(Boolean).length}
             <span className="text-sm font-normal text-slate-400"> /3</span>
           </p>
         </div>
@@ -533,12 +572,8 @@ function DashboardView() {
       {/* Charts: Score trend & severity donut */}
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-sm font-semibold text-slate-900">
-            Score trend
-          </h2>
-          <p className="mt-1 text-xs text-slate-500">
-            Last 6 scans
-          </p>
+          <h2 className="text-sm font-semibold text-slate-900">Score trend</h2>
+          <p className="mt-1 text-xs text-slate-500">Last 6 scans</p>
           <div className="mt-4">
             <ScoreTrendChart scans={recentScansQuery.data || []} />
           </div>
@@ -633,10 +668,10 @@ function DashboardView() {
                     finding.category === "configuration"
                       ? "/dashboard/security/headers"
                       : finding.category === "vulnerability"
-                      ? "/dashboard/security/vulnerabilities"
-                      : finding.category === "infrastructure"
-                      ? "/dashboard/domain"
-                      : `/dashboard/${finding.category}`;
+                        ? "/dashboard/security/vulnerabilities"
+                        : finding.category === "infrastructure"
+                          ? "/dashboard/domain"
+                          : `/dashboard/${finding.category}`;
 
                   return (
                     <div
@@ -663,152 +698,268 @@ function DashboardView() {
                 })}
                 {overview.locked_findings > 0 && (
                   <Link
-                    href="/dashboard/settings/billing"
+                    href="/pricing"
                     className="flex items-center gap-3 bg-slate-50/80 px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors"
                   >
                     <LockKeyhole className="size-4 text-slate-400" />
                     <span>
-                      Unlock {overview.locked_findings} more findings and remediation details
+                      Unlock {overview.locked_findings} more findings and
+                      remediation details
                     </span>
                     <ChevronRight className="ml-auto size-4 text-slate-400" />
                   </Link>
                 )}
-
               </>
             )}
           </div>
-
         </section>
       </div>
 
       {/* Recent scans */}
-      <section className="rounded-2xl border border-black/5 bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="font-content text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-              Recent scans
-            </p>
-            <h2 className="mt-1 font-heading text-lg font-medium text-slate-900">
-              Your latest scan activity
+      <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs transition-shadow">
+        {/* Header */}
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-1.5">
+              <Activity className="size-3.5 text-rose-500" />
+              <span className="font-mono text-[10.5px] font-semibold uppercase tracking-wider text-slate-400">
+                Telemetry Log
+              </span>
+            </div>
+            <h2 className="mt-0.5 font-heading text-base font-semibold tracking-tight text-slate-900">
+              Recent scan activity
             </h2>
           </div>
+
           <Link
             href="/dashboard/scans/history"
-            className="font-content text-xs font-medium text-[#f43f5e]"
+            className="group inline-flex items-center gap-1 font-mono text-[11px] font-medium text-slate-500 transition-colors hover:text-rose-600"
           >
-            View history
+            <span>View all history</span>
+            <ArrowUpRight className="size-3.5 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
           </Link>
         </div>
-        <div className="mt-4 grid gap-2 md:grid-cols-3">
-          {(recentScansQuery.data || []).slice(0, 3).map((scan) => (
-            <Link
-              key={scan.scan_id}
-              href={`/dashboard/scans/${scan.scan_id}`}
-              className="rounded-lg border border-black/5 px-3.5 py-3 transition hover:bg-rose-50/40"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate font-content text-[13px] font-medium text-slate-800">
-                  {scan.scan_type === "full"
-                    ? "Full website audit"
-                    : scan.scan_scope
-                      ? `Standard website scan · ${scan.scan_scope}`
-                      : scan.scan_type}
-                </span>
-                <span className="font-heading text-sm text-slate-900">
-                  {scan.score == null ? "—" : Math.round(scan.score)}
-                </span>
-              </div>
-              <p className="mt-1 font-content text-[11px] capitalize text-slate-400">
-                {scan.status} ·{" "}
-                {scan.finished_at
-                  ? new Date(scan.finished_at).toLocaleDateString()
-                  : "In progress"}
-              </p>
-            </Link>
-          ))}
+
+        {/* Grid List */}
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 md:grid-cols-3">
+          {(recentScansQuery.data || []).slice(0, 3).map((scan) => {
+            const score = scan.score != null ? Math.round(scan.score) : null;
+            const scoreBadgeClass =
+              score == null
+                ? "bg-slate-100 text-slate-500 border-slate-200/80"
+                : score >= 90
+                  ? "bg-emerald-50 text-emerald-700 border-emerald-200/70"
+                  : score >= 70
+                    ? "bg-amber-50 text-amber-700 border-amber-200/70"
+                    : "bg-rose-50 text-rose-700 border-rose-200/70";
+
+            const statusDotClass =
+              scan.status === "queued" || scan.status === "running"
+                ? "bg-amber-500 animate-pulse"
+                : scan.status === "failed"
+                  ? "bg-rose-500"
+                  : "bg-emerald-500";
+
+            return (
+              <Link
+                key={scan.scan_id}
+                href={`/dashboard/scans/${scan.scan_id}`}
+                className="group relative flex flex-col justify-between rounded-xl border border-slate-200/80 bg-slate-50/40 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-rose-200 hover:bg-white hover:shadow-xs"
+              >
+                <div>
+                  <div className="flex items-start justify-between gap-2.5">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <ShieldCheck className="size-4 shrink-0 text-slate-400 transition-colors group-hover:text-rose-500" />
+                      <span className="truncate font-heading text-xs font-semibold text-slate-800 group-hover:text-slate-950">
+                        {scan.scan_type === "full"
+                          ? "Full website audit"
+                          : scan.scan_scope
+                            ? `Standard · ${scan.scan_scope}`
+                            : scan.scan_type}
+                      </span>
+                    </div>
+
+                    <span
+                      className={`inline-flex shrink-0 items-center justify-center rounded-md border px-1.5 py-0.5 font-mono text-[11px] font-bold tabular-nums ${scoreBadgeClass}`}
+                    >
+                      {score ?? "—"}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex items-center justify-between border-t border-slate-150 pt-2.5 font-mono text-[10.5px] text-slate-500">
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={`size-1.5 rounded-full ${statusDotClass}`}
+                    />
+                    <span className="capitalize">
+                      {scan.status.replace("_", " ")}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1 text-slate-400">
+                    <Clock className="size-3" />
+                    <span>
+                      {scan.finished_at
+                        ? new Date(scan.finished_at).toLocaleDateString(
+                            undefined,
+                            {
+                              month: "short",
+                              day: "numeric",
+                            },
+                          )
+                        : "Scanning…"}
+                    </span>
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+
           {!recentScansQuery.data?.length && (
-            <p className="col-span-full py-4 font-content text-sm text-slate-500">
-              No scans yet. Run your first full audit to see results here.
-            </p>
+            <div className="col-span-full flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 py-8 text-center">
+              <div className="flex size-9 items-center justify-center rounded-lg bg-slate-50 text-slate-400">
+                <Activity className="size-4" />
+              </div>
+              <p className="mt-2 text-xs font-medium text-slate-700">
+                No recent audits found
+              </p>
+              <p className="mt-0.5 text-[11px] text-slate-400">
+                Run your first target scan above to populate your activity logs.
+              </p>
+            </div>
           )}
         </div>
       </section>
 
       {/* Bottom: quick actions and setup */}
-      <section className="grid gap-3 lg:grid-cols-[1.15fr_0.85fr]">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-sm font-semibold text-slate-900">
-                Keep your project healthy
-              </h2>
-              <p className="mt-1 text-xs text-slate-500">
-                The most useful next steps for this project.
-              </p>
-            </div>
-            <Settings2 className="size-4 text-slate-300" />
-          </div>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2">
-            <Link
-              href="/dashboard/monitoring"
-              className="group rounded-xl border border-slate-100 bg-slate-50 p-3 hover:border-blue-200 hover:bg-blue-50"
-            >
-              <Clock3 className="size-4 text-blue-600" />
-              <p className="mt-2 text-xs font-semibold text-slate-800">
-                Set up monitoring
-              </p>
-              <p className="mt-1 text-[11px] text-slate-500">
-                Catch score drops and regressions automatically.
-              </p>
-              <ChevronRight className="mt-2 size-3 text-slate-300 group-hover:text-blue-600" />
-            </Link>
-            <Link
-              href="/dashboard/api-mcp"
-              className="group rounded-xl border border-slate-100 bg-slate-50 p-3 hover:border-blue-200 hover:bg-blue-50"
-            >
-              <KeyRound className="size-4 text-violet-600" />
-              <p className="mt-2 text-xs font-semibold text-slate-800">
-                Connect your workflow
-              </p>
-              <p className="mt-1 text-[11px] text-slate-500">
-                Use project API keys for automated audits.
-              </p>
-              <ChevronRight className="mt-2 size-3 text-slate-300 group-hover:text-blue-600" />
-            </Link>
-          </div>
-
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-5">
-          <p className="text-xs text-slate-500">Project setup</p>
-          <p className="mt-2 text-sm font-medium text-slate-800">
-            {
-              [
-                overview.setup.website_url_configured,
-              ].filter(Boolean).length
-            }
-            /3 environments configured
-          </p>
-          <div className="mt-3 space-y-2">
-            {[
-              ["Website URL", overview.setup.website_url_configured],
-            ].map(([label, configured]) => (
-              <div
-                key={String(label)}
-                className="flex items-center gap-2 text-xs"
-              >
-                <CheckCircle2
-                  className={`size-3.5 ${configured ? "text-emerald-500" : "text-slate-300"}`}
-                />
-                <span
-                  className={configured ? "text-slate-700" : "text-slate-400"}
-                >
-                  {String(label)}
+      <section className="grid gap-3.5 lg:grid-cols-[1.25fr_0.75fr]">
+        {/* Health & Next Actions */}
+        <div className="flex flex-col justify-between rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs">
+          <div>
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="font-mono text-[10.5px] font-semibold uppercase tracking-wider text-slate-400">
+                  Recommendations
                 </span>
-                {!configured && (
-                  <span className="ml-auto text-slate-400">Optional</span>
-                )}
+                <h2 className="mt-0.5 font-heading text-sm font-semibold tracking-tight text-slate-900">
+                  Keep your project healthy
+                </h2>
               </div>
-            ))}
+              <span className="flex size-7 items-center justify-center rounded-lg border border-slate-150 bg-slate-50 text-slate-400">
+                <Settings2 className="size-3.5" />
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-2.5 sm:grid-cols-2">
+              <Link
+                href="/dashboard/monitoring"
+                className="group relative flex flex-col justify-between rounded-xl border border-slate-200/80 bg-slate-50/50 p-3.5 transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:bg-white hover:shadow-xs"
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="flex size-7 items-center justify-center rounded-md bg-blue-500/10 text-blue-600">
+                      <Clock3 className="size-3.5" />
+                    </span>
+                    <ChevronRight className="size-3.5 text-slate-300 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-blue-600" />
+                  </div>
+                  <p className="mt-2.5 font-heading text-xs font-semibold text-slate-900">
+                    Set up monitoring
+                  </p>
+                  <p className="mt-1 font-content text-[11px] leading-relaxed text-slate-500">
+                    Catch score drops and regressions automatically before
+                    production.
+                  </p>
+                </div>
+              </Link>
+
+              <Link
+                href="/dashboard/api-mcp"
+                className="group relative flex flex-col justify-between rounded-xl border border-slate-200/80 bg-slate-50/50 p-3.5 transition-all duration-200 hover:-translate-y-0.5 hover:border-violet-200 hover:bg-white hover:shadow-xs"
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="flex size-7 items-center justify-center rounded-md bg-violet-500/10 text-violet-600">
+                      <KeyRound className="size-3.5" />
+                    </span>
+                    <ChevronRight className="size-3.5 text-slate-300 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-violet-600" />
+                  </div>
+                  <p className="mt-2.5 font-heading text-xs font-semibold text-slate-900">
+                    Connect your workflow
+                  </p>
+                  <p className="mt-1 font-content text-[11px] leading-relaxed text-slate-500">
+                    Trigger automated scan sweeps using project API keys and
+                    MCP.
+                  </p>
+                </div>
+              </Link>
+            </div>
+          </div>
+        </div>
+
+        {/* Project Setup Checklist & Progress */}
+        <div className="flex flex-col justify-between rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs">
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-[10.5px] font-semibold uppercase tracking-wider text-slate-400">
+                Configuration
+              </span>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 font-mono text-[10.5px] font-semibold text-slate-600">
+                {[overview.setup.website_url_configured].filter(Boolean).length}
+                /3 Done
+              </span>
+            </div>
+
+            <h3 className="mt-1 font-heading text-sm font-semibold tracking-tight text-slate-900">
+              Project setup
+            </h3>
+
+            {/* Progress Bar */}
+            <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-full rounded-full bg-emerald-500 transition-all duration-500"
+                style={{
+                  width: `${([overview.setup.website_url_configured].filter(Boolean).length / 3) * 100}%`,
+                }}
+              />
+            </div>
+
+            {/* Checklist items */}
+            <div className="mt-4 space-y-2">
+              {[
+                [
+                  "Website URL",
+                  overview.setup.website_url_configured,
+                  "Required",
+                ],
+                ["Webhook Notifications", false, "Optional"],
+                ["API Key Generated", false, "Optional"],
+              ].map(([label, configured, tag]) => (
+                <div
+                  key={String(label)}
+                  className="flex items-center justify-between rounded-lg border border-slate-150/70 bg-slate-50/40 px-2.5 py-1.5 text-xs"
+                >
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2
+                      className={`size-3.5 shrink-0 ${
+                        configured ? "text-emerald-500" : "text-slate-300"
+                      }`}
+                    />
+                    <span
+                      className={`font-medium ${
+                        configured ? "text-slate-800" : "text-slate-500"
+                      }`}
+                    >
+                      {String(label)}
+                    </span>
+                  </div>
+
+                  <span className="font-mono text-[10px] text-slate-400">
+                    {configured ? "Active" : String(tag)}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </section>

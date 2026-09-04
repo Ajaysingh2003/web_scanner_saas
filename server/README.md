@@ -136,14 +136,29 @@ DODO_PRODUCT_PRO_MONTHLY=
 DODO_PRODUCT_PRO_ANNUAL=
 DODO_PRODUCT_MAX_MONTHLY=
 DODO_PRODUCT_MAX_ANNUAL=
-DODO_PAYMENTS_SUCCESS_URL=http://localhost:3000/billing/success
-DODO_PAYMENTS_CANCEL_URL=http://localhost:3000/billing/cancel
-DODO_PAYMENTS_PORTAL_RETURN_URL=http://localhost:3000/settings/billing
+DODO_PAYMENTS_SUCCESS_URL=http://localhost:7000/billing/success
+DODO_PAYMENTS_CANCEL_URL=http://localhost:7000/billing/cancel
+DODO_PAYMENTS_PORTAL_RETURN_URL=http://localhost:7000/dashboard
+
+# Automated data retention (days)
+RETENTION_ENABLED=true
+RETENTION_SCAN_DAYS=365
+RETENTION_AUTH_DAYS=30
+RETENTION_PAYMENT_WEBHOOK_DAYS=180
+RETENTION_MONITORING_DAYS=90
+RETENTION_DISABLED_INTEGRATION_DAYS=30
 ```
 
 Never commit `.env`, JWT secrets, Dodo Payments secrets, OAuth secrets, API keys, or
 integration credentials. The API refuses to start when `AUTH_JWT_SECRET` is too
 short.
+
+The worker runs retention cleanup daily at 03:17 UTC. Completed and failed scans
+include their findings, evidence, encrypted authenticated-scan options, and public
+report links through database cascades. Active provider and Supabase connections
+are retained until the user disconnects or deletes the project; secrets belonging
+to disabled webhook/monitoring integrations are removed after the configured
+grace period.
 
 ## 4. Authentication and credentials
 

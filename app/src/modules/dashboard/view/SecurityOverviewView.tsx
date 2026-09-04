@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSuspenseQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ShieldAlert,
   Lock,
@@ -28,9 +28,8 @@ export default function SecurityOverviewView() {
   const queryClient = useQueryClient();
   const { project, projectId, isLoading } = useActiveProject();
 
-  const overview = useQuery({
+  const overview = useSuspenseQuery({
     ...trpc.project.overview.queryOptions({ project_id: projectId }),
-    enabled: !!project,
   });
 
   const latestScan = useQuery({

@@ -1,11 +1,12 @@
 import DashboardView from "@/modules/dashboard/view/DashboardView";
-import React, { Suspense } from "react";
+import ProjectDataBoundary from "@/modules/dashboard/component/ProjectDataBoundary";
+import React from "react";
 
 function page() {
   return (
-    <Suspense fallback={<div className="h-40 w-full animate-pulse bg-slate-100 rounded-3xl" />}>
+    <ProjectDataBoundary>
       <DashboardView />
-    </Suspense>
+    </ProjectDataBoundary>
   );
 }
 

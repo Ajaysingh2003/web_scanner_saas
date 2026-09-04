@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSuspenseQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTRPC, useTRPCClient } from "@/trpc/client";
 import { Key, Copy, Trash2, CheckCircle2 } from "lucide-react";
 import toast from "react-hot-toast";
@@ -19,7 +19,7 @@ export default function ApiKeysView() {
   const [name, setName] = useState("");
   const [newKey, setNewKey] = useState<{ id: string; secret: string } | null>(null);
 
-  const { data: keys, isLoading } = useQuery(trpc.user.listApiKeys.queryOptions());
+  const { data: keys, isLoading } = useSuspenseQuery(trpc.user.listApiKeys.queryOptions());
 
   const createMutation = useMutation({
     mutationFn: (variables: { name: string }) => client.user.createApiKey.mutate(variables),

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import React, { useEffect, useRef } from "react";
 import { FaGithub, FaXTwitter, FaLinkedinIn, FaDiscord } from "react-icons/fa6";
-import { ArrowRight, ArrowUpRight, Radio } from "lucide-react";
+import { ArrowRight, ArrowUpRight } from "lucide-react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import { cn } from "@/lib/utils";
@@ -46,7 +46,7 @@ function NavLink({
       <span className="flex items-center gap-2">
         {label}
 
-        {/* {badge && (
+        {badge && (
           <span
             className="
               rounded-md
@@ -65,10 +65,10 @@ function NavLink({
           >
             {badge}
           </span>
-        )} */}
+        )}
       </span>
 
-      {/* <ArrowUpRight
+      {external && <ArrowUpRight
         className="
           size-3
           shrink-0
@@ -80,7 +80,7 @@ function NavLink({
           group-hover:translate-x-[1px]
           group-hover:text-rose-500
         "
-      /> */}
+      />}
     </Link>
   );
 }
@@ -812,22 +812,26 @@ export function AnimatedFooter() {
             "
           >
             <FooterColumn title="Product">
-              <NavLink href="/login" label="Dashboard" />
+              <NavLink href="/dashboard" label="Dashboard" />
 
-              <NavLink href="/#pricing" label="Pricing" />
+              <NavLink href="/pricing" label="Pricing" />
 
-              <NavLink href="/#features" label="Audit scope" />
+              <NavLink href="/scans" label="Audit scope" />
 
-              <NavLink href="/#monitoring" label="Monitoring" badge="24/7" />
+              <NavLink
+                href="/scans/uptime-heartbeat"
+                label="Monitoring"
+                badge="24/7"
+              />
             </FooterColumn>
 
             <FooterColumn title="Support">
               <NavLink href="/#faq" label="FAQ" />
 
-              <NavLink href="mailto:support@scanlyst.io" label="Contact" />
+              <NavLink href="mailto:support@scanlyst.dev" label="Contact" />
 
               <NavLink
-                href="https://status.scanlyst.io"
+                href="https://status.scanlyst.dev"
                 label="System status"
                 badge="Live"
                 external
@@ -836,8 +840,11 @@ export function AnimatedFooter() {
 
             <FooterColumn title="Legal">
               <NavLink href="/privacy" label="Privacy" />
-
               <NavLink href="/terms" label="Terms" />
+              <NavLink href="/cookies" label="Cookies" />
+              <NavLink href="/acceptable-use" label="Acceptable use" />
+              <NavLink href="/refund-policy" label="Refunds" />
+              <NavLink href="/responsible-disclosure" label="Disclosure" />
             </FooterColumn>
           </div>
         </div>

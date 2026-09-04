@@ -208,6 +208,32 @@ export default function ScanDetailView() {
         }
       />
 
+      {failedRuns.length > 0 && (
+        <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50/80 p-4 text-amber-900 shadow-xs">
+          <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" />
+          <div className="min-w-0 flex-1">
+            <h3 className="text-sm font-semibold text-amber-950 font-heading">
+              Incomplete Audit: {failedRuns.length} scanner{failedRuns.length === 1 ? "" : "s"} could not connect to this target
+            </h3>
+            <p className="mt-1 text-xs leading-relaxed text-amber-800 font-content">
+              {((result as any)?.metadata_?.scoring?.global_score != null || (result as any)?.metadata?.scoring?.global_score != null) && (
+                <span>
+                  Findings-only quality score is{" "}
+                  <strong>
+                    {Math.round(
+                      (result as any)?.metadata_?.scoring?.global_score ??
+                      (result as any)?.metadata?.scoring?.global_score
+                    )}/100
+                  </strong>
+                  , but the overall score is capped at <strong>{result.overall_score ?? 0}/100</strong> due to low audit coverage.{" "}
+                </span>
+              )}
+              {failedRuns.length} security scanners timed out or were blocked by the target host or DNS. You can review individual scanner failure details in the audit sections below.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Category Deep-Dive Grid */}
       <section className="space-y-3">
         <div className="flex items-center justify-between">
@@ -219,53 +245,75 @@ export default function ScanDetailView() {
           </span>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {categoryCards.map((cat) => {
-            const Icon = cat.icon;
-            return (
-             <Link
-  key={cat.href}
-  href={cat.href}
-  className="group relative flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:border-rose-200 hover:bg-rose-50/30"
->
-  <div>
-    <div className="flex items-center justify-between">
-      <div className="rounded-lg border border-slate-100 bg-slate-50 p-2 text-slate-500">
-        <Icon className="size-4" />
-      </div>
-      {cat.score != null ? (
-        <span
-          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-            cat.score >= 90
-              ? "bg-emerald-50 text-emerald-700"
-              : cat.score >= 70
-              ? "bg-amber-50 text-amber-700"
-              : "bg-rose-50 text-rose-700"
-          }`}
-        >
-          {Math.round(cat.score)}/100
-        </span>
-      ) : (
-        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
-          {cat.issuesCount} issue{cat.issuesCount !== 1 ? "s" : ""}
-        </span>
-      )}
-    </div>
-    <h3 className="font-heading mt-3 text-sm font-semibold text-slate-900">
-      {cat.title}
-    </h3>
-    <p className="mt-1 text-xs text-slate-500 line-clamp-2">
-      {cat.description}
-    </p>
-  </div>
-  <div className="mt-4 flex items-center gap-1 text-xs font-medium text-rose-600">
-    <span>View {cat.shortTitle}</span>
-    <ArrowUpRight className="size-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-  </div>
-</Link>
-            );
-          })}
+       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
+  {categoryCards.map((cat) => {
+    const Icon = cat.icon;
+    const roundedScore = cat.score != null ? Math.round(cat.score) : null;
+
+    const scorePillClass =
+      roundedScore == null
+        ? ""
+        : roundedScore >= 90
+          ? "border-emerald-200/80 bg-emerald-50 text-emerald-700"
+          : roundedScore >= 70
+            ? "border-amber-200/80 bg-amber-50 text-amber-700"
+            : "border-rose-200/80 bg-rose-50 text-rose-700";
+
+    const scoreDotClass =
+      roundedScore == null
+        ? ""
+        : roundedScore >= 90
+          ? "bg-emerald-500"
+          : roundedScore >= 70
+            ? "bg-amber-500"
+            : "bg-rose-500";
+
+    return (
+      <Link
+        key={cat.href}
+        href={cat.href}
+        className="group relative flex flex-col justify-between rounded-xl border border-slate-200/85 bg-white p-4 shadow-2xs transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-xs"
+      >
+        <div>
+          {/* Top Row: Icon + Score Badge */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex size-8 items-center justify-center rounded-lg border border-slate-150 bg-slate-50/80 text-slate-600 transition-colors group-hover:border-rose-200 group-hover:bg-rose-50/60 group-hover:text-rose-600">
+              <Icon className="size-4" />
+            </div>
+
+            {roundedScore != null ? (
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 font-mono text-[11px] font-semibold tabular-nums shadow-2xs ${scorePillClass}`}
+              >
+                <span className={`size-1 rounded-full ${scoreDotClass}`} />
+                <span>{roundedScore}</span>
+                <span className="font-sans text-[10px] font-normal opacity-60">/100</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center rounded-full border border-slate-200/70 bg-slate-50 px-2 py-0.5 font-mono text-[10.5px] font-medium text-slate-600">
+                {cat.issuesCount ?? 0} {cat.issuesCount === 1 ? "issue" : "issues"}
+              </span>
+            )}
+          </div>
+
+          {/* Title & Description */}
+          <h3 className="font-heading mt-3.5 text-[13.5px] font-semibold tracking-tight text-slate-900 transition-colors group-hover:text-slate-950">
+            {cat.title}
+          </h3>
+          <p className="mt-1 font-content text-xs leading-relaxed text-slate-500 line-clamp-2">
+            {cat.description}
+          </p>
         </div>
+
+        {/* Footer Link Row */}
+        <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-2.5 font-mono text-[11px] font-medium text-slate-400 transition-colors group-hover:text-rose-600">
+          <span>Inspect {cat.shortTitle}</span>
+          <ArrowUpRight className="size-3.5 transition-transform duration-150 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+        </div>
+      </Link>
+    );
+  })}
+</div>
       </section>
 
       {/* Scanner Progress / Failure Alert */}

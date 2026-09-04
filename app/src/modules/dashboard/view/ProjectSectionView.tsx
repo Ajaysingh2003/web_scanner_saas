@@ -137,7 +137,7 @@ function UpgradeGate({ title }: { title: string }) {
         scan data private.
       </p>
       <Link
-        href="/dashboard/settings/billing"
+        href="/pricing"
         className="bg-background-btn mt-4 inline-flex h-9 items-center rounded-lg px-4 text-sm text-white"
       >
         View plans

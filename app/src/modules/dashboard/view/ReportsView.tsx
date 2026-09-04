@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSuspenseQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { useTRPC, useTRPCClient } from "@/trpc/client";
 import { useActiveProject } from "@/hooks/useActiveProject";
@@ -18,9 +18,8 @@ export default function ReportsView() {
   const client = useTRPCClient();
   const queryClient = useQueryClient();
 
-  const { data: scanHistory, isLoading: historyLoading } = useQuery({
-    ...trpc.project.scanHistory.queryOptions({ project_id: projectId || "00000000-0000-0000-0000-000000000000" }),
-    enabled: !!project,
+  const { data: scanHistory, isLoading: historyLoading } = useSuspenseQuery({
+    ...trpc.project.scanHistory.queryOptions({ project_id: projectId }),
   });
 
   // Get the latest completed scan for reports/sharing
@@ -255,4 +254,3 @@ export default function ReportsView() {
     </div>
   );
 }
-

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSuspenseQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTRPC, useTRPCClient } from "@/trpc/client";
 import { useActiveProject } from "@/hooks/useActiveProject";
 import PageHeader from "@/modules/dashboard/component/PageHeader";
@@ -28,18 +28,14 @@ export default function BenchmarksView() {
   const client = useTRPCClient();
   const queryClient = useQueryClient();
 
-  const { data: overview, isLoading: overviewLoading } = useQuery(
-    trpc.project.overview.queryOptions(
-      { project_id: projectId || "00000000-0000-0000-0000-000000000000" },
-      { enabled: !!projectId },
-    ),
+  const { data: overview, isLoading: overviewLoading } = useSuspenseQuery(
+    trpc.project.overview.queryOptions({ project_id: projectId }),
   );
 
-  const { data: benchmarks, isLoading: benchmarksLoading } = useQuery({
+  const { data: benchmarks, isLoading: benchmarksLoading } = useSuspenseQuery({
     ...trpc.project.benchmarks.queryOptions({
-      project_id: projectId || "00000000-0000-0000-0000-000000000000",
+      project_id: projectId,
     }),
-    enabled: !!projectId,
     refetchInterval: (query) => {
       const data = query.state.data;
       const hasPending = data?.some(

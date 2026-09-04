@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useSuspenseQuery } from "@tanstack/react-query";
 import {
   ChevronRight,
   Download,
@@ -76,11 +76,10 @@ export default function ScanHistoryView() {
   const [status, setStatus] = useState("all");
   const { project, projectId, isLoading } = useActiveProject();
 
-  const history = useQuery({
+  const history = useSuspenseQuery({
     ...trpc.project.scanHistory.queryOptions({
       project_id: projectId,
     }),
-    enabled: Boolean(project?.id),
     refetchInterval: 4000,
   });
 
